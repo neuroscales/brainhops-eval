@@ -20,7 +20,7 @@ on:
         options: [phantom, nibabel-anatomical]
         default: phantom
       interface:
-        description: Explicit Python geometry composition or documented CLI
+        description: Public Python image application API or documented CLI
         type: choice
         options: [python, cli]
         default: python

@@ -17,14 +17,14 @@ The anatomical check predates the additional handedness case. The ANTs image
 tag is `v2.6.0`; the binaries report `2.6.0.dev1-gcff4f8b`, which is recorded
 verbatim in fixture provenance.
 
-## Explicit Python geometry path
+## Public Python image application API
 
 The SimpleITK suite covers known and estimated transforms serialized as TFM
 and HDF5; native, flipped-handedness, downsampled, alternate-reference, integer
 intensity, and label inputs; and known-transform PNG/NPY cases. The direct
-Python path composes `pull.inverse() @ source.transformation` before reslicing,
-so the test expresses the physical mapping without depending on the calling
-convention of `Image.__call__`.
+Python path calls `source(pull).reslice(reference, ...)`, exercising the public
+image application API with the native pull map. The image call handles
+composition with the source geometry.
 
 Tests independently compare the native package's result with SciPy sampling
 through the known RAS voxel-to-voxel map, check landmark positions, check
@@ -41,7 +41,7 @@ applies the opposite mapping in this version.
 
 With the known-transform native-grid case, the documented CLI invocation had
 an interior maximum absolute error of about 612 intensity units. The same
-fixture passed through explicit Python geometry composition with maximum
+fixture passed through the public Python image application API with maximum
 absolute error below 0.001. The float32 downsampled case also failed in CLI
 mode, so integer output quantization does not explain the discrepancy.
 
@@ -60,9 +60,9 @@ after the direction contract is fixed. No brainhops code is modified here.
 
 ## Execution limits
 
-Local validation exercises the Python tooling and actual ANTs binaries; it
-does not substitute for building and running both SIF definitions on the
-GitHub-hosted runner. The Actions workflow performs those builds, records
-SIF checksums and package inventories, and uploads diagnostic results even
-when comparisons fail. ARM runners are not supported by the initial digest
-pins.
+Both SIF definitions were also built and run successfully on the GitHub-hosted
+runner in [CI run 38783017651](https://github.com/neuroscales/brainhops-eval/actions/runs/38783017651).
+The container generation and evaluation jobs passed for both packages. The
+workflow records SIF checksums and package inventories, and uploads diagnostic
+results even when comparisons fail. ARM runners are not supported by the
+initial digest pins.

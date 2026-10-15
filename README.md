@@ -19,7 +19,7 @@ Evaluate brainhops → Run workflow**. Set:
 | `brainhops_ref` | Commit SHA, tag, or branch in `neuroscales/brainhops` |
 | `packages` | `simpleitk`, `ants`, or `all` |
 | `dataset` | `phantom` or the pinned `nibabel-anatomical` example |
-| `interface` | `python` for explicit geometry composition; `cli` for documented CLI behavior |
+| `interface` | `python` for the public image application API; `cli` for documented CLI behavior |
 | `fixtures_run_id` | Optional previous run ID whose native fixtures should be reused |
 
 The ref is resolved **once** to a full commit SHA before installation. That SHA
@@ -152,13 +152,14 @@ The current PNG/NPY cases use known transforms, not a raster registration run.
 ## Comparison semantics
 
 Native ITK transforms are pull maps from fixed LPS physical space to moving LPS
-physical space. NIfTI grids use RAS. The Python path explicitly assigns:
+physical space. NIfTI grids use RAS. The Python path uses the public API:
 
 ```text
-moved_voxel_to_fixed_world = inverse(native_pull) @ moving_voxel_to_world
+source(native_pull).reslice(reference, ...)
 ```
 
-brainhops then reslices that geometry onto the reference grid. Input **storage**
+The image call accepts the pull map and handles geometry composition before
+reslicing onto the reference grid. Input **storage**
 dtypes are varied; both reference and Python evaluation compute in float32 to
 isolate interpolation from integer output quantization. The original readers
 still decode the integer files. Integer output-casting policy is not yet a

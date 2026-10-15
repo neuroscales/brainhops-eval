@@ -92,13 +92,13 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     source = bio.images.load(src)
                     reference = bio.images.load(ref)
                     pull = bio.transformations.load(transform)
-                    # State the geometry algebra explicitly, independently of
-                    # the calling convention of Image.__call__ in a given ref.
-                    moved = SingleScaleImage(
+                    # Match the native resampler's float32 computation while
+                    # retaining the geometry decoded by the brainhops reader.
+                    source = SingleScaleImage(
                         data=np.asarray(source.data, dtype=np.float32),
-                        transformations=[pull.inverse() @ source.transformation],
+                        transformations=source.transformations,
                     )
-                    resliced = moved.reslice(reference, degree=case["degree"], bound="constant")
+                    resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
                     bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
                 reference = nib.load(ref)
@@ -132,9 +132,9 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     arrays.append(with_package_geometry(data, probes[case["kind"]][label],
                                                         pull.output if label == "moving" else pull.input))
                 moving, reference = arrays
-                moved = SingleScaleImage(data=np.asarray(moving.data, dtype=np.float32),
-                                         transformations=[pull.inverse() @ moving.transformation])
-                actual = np.asarray(moved.reslice(reference, degree=1, bound="constant").data)
+                moving = SingleScaleImage(data=np.asarray(moving.data, dtype=np.float32),
+                                          transformations=moving.transformations)
+                actual = np.asarray(moving(pull).reslice(reference, degree=1, bound="constant").data)
                 reference_array = np.asarray(reference.data)
                 np.save(case_output / "brainhops.npy", actual)
                 record["geometry_policy"] = case["geometry_policy"]
