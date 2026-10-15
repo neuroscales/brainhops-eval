@@ -7,6 +7,7 @@ import subprocess
 import sys
 import traceback
 import warnings
+from urllib.parse import quote
 from pathlib import Path
 
 import nibabel as nib
@@ -19,6 +20,17 @@ from .report import montage, write_report
 
 def load_array(path):
     return np.load(path, allow_pickle=False) if Path(path).suffix == ".npy" else nib.load(path).get_fdata()
+
+
+def expected_on_reference_grid(path, reference):
+    """Undo lossless native axis storage changes; never interpolate expected data."""
+    image, ref = nib.load(path), nib.load(reference)
+    orientation = nib.orientations.ornt_transform(
+        nib.orientations.io_orientation(image.affine), nib.orientations.io_orientation(ref.affine))
+    aligned = image.as_reoriented(orientation)
+    if aligned.shape != ref.shape or not np.allclose(aligned.affine, ref.affine, atol=1e-4, rtol=1e-6):
+        raise ValueError("Native output is not on the reference grid, even after lossless axis reordering")
+    return aligned.get_fdata(), orientation.tolist()
 
 
 def reference_in_output_dtype(expected, dtype):
@@ -62,6 +74,24 @@ def compare(actual, expected, mask, atol=0.02, nrmse_limit=2e-5):
     return maximum <= atol and nrmse <= nrmse_limit, metrics
 
 
+def transform_source(fixtures, case):
+    """A portable CLI source spec, including optional original image geometries."""
+    spec = quote(str(relative_file(fixtures, case["transform"])), safe="/:._-")
+    if case.get("transform_hint"):
+        spec += "|" + case["transform_hint"]
+    for name, path in case.get("transform_images", {}).items():
+        spec += f"|{name}:[{quote(str(relative_file(fixtures, path)), safe='/:._-')}]"
+    return spec
+
+
+def load_transform(bio, fixtures, case):
+    options = {name: bio.images.load(relative_file(fixtures, path))
+               for name, path in case.get("transform_images", {}).items()}
+    if case.get("transform_hint"):
+        options["hint"] = case["transform_hint"]
+    return bio.load(relative_file(fixtures, case["transform"]), **options)
+
+
 def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown", interface="python"):
     # Only this stage imports brainhops. Native fixtures are reusable across refs.
     import brainhops.io as bio
@@ -90,13 +120,18 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
               "registration": read_json(fixtures / "registration.json"), "cases": []}
     for case in manifest["cases"]:
         record = {"id": case["id"], "status": "error", "transform": case["transform"],
+                  "transform_hint": case.get("transform_hint"),
+                  "transform_images": case.get("transform_images", {}),
                   "interface": interface if case["kind"] == "nifti" else "python"}
         case_output = output / case["id"]
         case_output.mkdir()
         try:
             src, ref, transform = [relative_file(fixtures, case[key]) for key in ("moving", "reference", "transform")]
             expected_path = relative_file(fixtures, case["expected"])
-            expected = load_array(expected_path)
+            if case["kind"] == "nifti":
+                expected, record["native_output_axis_reordering"] = expected_on_reference_grid(expected_path, ref)
+            else:
+                expected = load_array(expected_path)
             record["reference_output_dtype"] = str(expected.dtype if expected_path.suffix == ".npy"
                                                    else nib.load(expected_path).get_data_dtype())
             mask = np.load(relative_file(fixtures, case["mask"]), allow_pickle=False).astype(bool)
@@ -106,7 +141,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     # Follow the documented push convention. A version whose CLI
                     # differs should fail visibly rather than be special-cased.
                     args = [sys.executable, "-m", "brainhops", "reslice", str(src),
-                            "--reference", str(ref), "--transform", f"{transform}|inv",
+                            "--reference", str(ref), "--transform", transform_source(fixtures, case) + "|inv",
                             "--output", str(actual_path), "--degree", str(case["degree"]), "--bound", "constant"]
                     process = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                     (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
@@ -114,7 +149,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                 else:
                     source = bio.images.load(src)
                     reference = bio.images.load(ref)
-                    pull = bio.load(transform)
+                    pull = load_transform(bio, fixtures, case)
                     with warnings.catch_warnings(record=True) as caught:
                         warnings.simplefilter("always")
                         resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
@@ -141,7 +176,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     if not np.isin(actual, allowed).all():
                         raise ValueError("Nearest interpolation introduced a new label value")
             else:
-                pull = bio.load(transform)
+                pull = load_transform(bio, fixtures, case)
                 source = bio.images.load(src)
                 reference = bio.images.load(ref)
                 record["axis_interpretation"] = {

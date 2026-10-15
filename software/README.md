@@ -36,6 +36,12 @@ The current evaluator consumes:
   and `mask`. Paths are relative to the bundle. Current image kinds are
   `nifti` and `png`. NPY is used only for expected arrays and masks, not
   as an image input to brainhops.
+- Optional `transform_hint` selects the native reader explicitly. Optional
+  `transform_images` maps reader option names to **original registration image**
+  paths; the evaluator loads these via `io.images.load`, separately from the
+  actual application pair. Both Python and CLI honor these options.
+- Optional `display_window: [low, high]` fixes one window across all anatomy
+  panels and packages. Difference panels retain a separately labelled scale.
 - Native transform files, expected resampled images, and boolean interior masks.
 - `geometry-probes.json`: package input/reference geometry for raster cases;
   an empty object if no raster cases are generated.
@@ -64,3 +70,10 @@ utilities if useful.
 There is no central list of software implementations. Per-software cache keys
 include that folder and the common tooling, so changing another recipe does not
 invalidate its container.
+
+The FSL, NiftyReg, elastix and MRtrix recipes use `software/_shared/affine.py`
+for bundle writing and independent world-coordinate validation. Each recipe
+owns native registration, transform encoding and resampling. The independent
+SciPy check validates conventions; native software produces the expected image.
+Native outputs may differ in storage axes only: the evaluator can undo an exact
+permutation/flip, but rejects any change to the requested physical sampling grid.

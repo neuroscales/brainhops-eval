@@ -102,3 +102,36 @@ The numerical passes from that historical run used the removed image wrappers
 and must not be cited as direct-loaded validation. The workflow records SIF
 checksums and package inventories, and uploads reports when comparisons fail.
 ARM runners are not supported by the initial digest pins.
+
+## Additional native packages (2026-10-15)
+
+Local native generation was exercised against brainhops commit
+`04d278618652ec3bda4b3ec46d4278734ced6bf7`, using the direct loaded-image API.
+Each added recipe generated 14 cases: known/registered affine × seven variants
+(native, reflected, downsampled, oblique reference, uint8, int8, labels).
+Every native output also passed an independent physical RAS pull calculation.
+This validates native matrix direction, grid handling and image storage layout
+separately from brainhops agreement.
+
+| Native package | Independent native maximum absolute difference | brainhops passes / cases |
+| --- | --- | --- |
+| FSL 6.0.4 | 0.01465 (floating output) | 4 / 14 |
+| NiftyReg 2.1.2 | 1.00002 (integer output truncation included) | 0 / 14 |
+| elastix 5.0.1 | 0.000727 (floating output) | 10 / 14 |
+| MRtrix3 3.0.3 | 0.001669 (floating output) | 0 / 14 |
+
+FSL and elastix failures are integer mismatches of one unit. FSL had 1–44
+interior mismatches in its failing cases. NiftyReg and MRtrix show much larger
+mapping differences (hundreds of intensity units for the int16 phantom), even
+though the loaded native RAS affine has the expected numeric matrix. These are
+reported as failures, without replacing loaded images or relabelling systems.
+The issue requires investigation in brainhops rather than an evaluator adapter.
+
+MRtrix writes some output NIfTI files with different storage-axis order.
+Evaluation undoes only the native output's exact permutation/flip and verifies
+its resulting affine and shape against the requested reference grid. This is
+lossless; it does not interpolate data or modify brainhops-loaded objects.
+
+These are local native-runtime results, not claims that all four new SIF
+builds or numerical CI jobs pass. CI builds and runs the separate definitions,
+and always uploads quantitative results and shared-window montages.

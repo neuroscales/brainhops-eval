@@ -64,7 +64,7 @@ must refer to a run in that repository. Internal calls and manual runs check out
 the evaluation workflow's own commit automatically.
 
 Pull-request CI runs the tooling tests and the complete container-based Python
-evaluation against brainhops `main`, using both reference packages.
+evaluation against brainhops `main`, using all discovered reference packages.
 
 ## Repository layout
 
@@ -81,13 +81,17 @@ software/
     generate.py
     requirements.txt
     README.md
+  fsl/                    # FLIRT native conventions and runtime
+  niftyreg/               # reg_aladin / reg_resample
+  elastix/                # elastix / transformix
+  mrtrix/                 # mrregister / mrtransform
   _shared/itk.py          # Optional native ITK utilities, outside the package
 scripts/select_software.py
 ```
 
 Native registration, transform application, software dependencies, and container
 entrypoints belong in each software folder. They are not installed as part of
-`brainhops-eval`. The two current recipes reuse ITK bundle-writing utilities
+`brainhops-eval`. The ITK recipes reuse ITK bundle-writing utilities
 under `software/_shared`; a new recipe need not use those utilities or Python.
 Shared inputs describe known mappings as JSON; each recipe writes the native
 transform files it needs.
@@ -151,12 +155,16 @@ list are recorded, so cached SIFs identify the actual generating environment.
 Bitwise identical SIF rebuilds are not promised. CI caches SIFs by definitions,
 tooling, and requirements. Seeds and thread settings are explicit.
 
-## Initial coverage
+## Package coverage
 
 | Reference package | Registration | Native application | Transform files |
 | --- | --- | --- | --- |
 | SimpleITK 2.5.2 | Rigid, exported as affine | SimpleITK resampler | ITK `.tfm`, `.h5` |
 | ANTs 2.6.0 | Rigid | `antsApplyTransforms` | Native `.mat`, converted `.tfm`, `.h5` |
+| [FSL 6.0.4](software/fsl/) | FLIRT affine | `flirt -applyxfm` | Native FLIRT matrix + original image geometries |
+| [NiftyReg 2.1.2](software/niftyreg/) | `reg_aladin` affine | `reg_resample` | Physical RAS affine |
+| [elastix 5.0.1](software/elastix/) | Affine | `transformix` | Native parameter file, physical LPS |
+| [MRtrix3 3.0.3](software/mrtrix/) | `mrregister` affine | `mrtransform` | Native reverse scanner RAS affine |
 
 Each package applies a known affine and its estimated registration across:
 
@@ -165,12 +173,12 @@ Each package applies a known affine and its estimated registration across:
   explicitly exercises opposite handedness.
 - A downsampled moving image and an oblique reference grid, preserving their
   anatomical coordinate frame.
-- `int16`, `uint8`, and `float32` input files; nearest-neighbor label maps.
+- `int16`, `uint8`, `int8`, and `float32` input files; nearest-neighbor label maps.
 - Transform serialization round trips, independently checked on physical points.
 
 The known affine includes rotation, translation, nonuniform scaling, and shear.
-The estimated registration is rigid, so its anatomical fit is deliberately
-imperfect; interoperability is checked against its actual estimated mapping.
+SimpleITK and ANTs estimate rigid registrations; the other recipes estimate
+affines. Registration quality and interoperability are separate; interoperability is checked against its actual estimated mapping.
 
 SimpleITK additionally probes native PNG reader defaults with asymmetric,
 non-square images. NPY is not an active image-format case because brainhops has
@@ -211,7 +219,11 @@ or reference-storage differences can still produce a one-unit mismatch; these
 remain visible failures. A native
 coverage mask excludes the source interpolation edge; boundary errors are
 reported separately. Less than 5% interior coverage, non-finite data, wrong
-output grids, and corrupted fixtures fail validation. Overlays use shared
+output grids, and corrupted fixtures fail validation. Each fixture variant declares a display window shared by all anatomy and
+checkerboard panels, and by all packages testing that variant. Integer anatomy
+uses at least 64 occupied bins without hidden NIfTI slope/intercept scaling;
+uint8 and int8 references use the same intensity map as their moving images.
+Label maps have matching label references. Overlays use shared
 intensity scaling; difference panels show their own maximum. Reference slices
 are displayed in voxel axes, not falsely labelled as anatomical planes.
 
@@ -225,7 +237,7 @@ No version-specific inversion is silently substituted. See
 
 ## Extending the suite
 
-Next additions should include FSL and NiftyReg recipes, nonlinear fields and
+Next additions should include nonlinear fields and
 their domains, chained transforms, explicit image-format conversions, qform/
 sform precedence and scaling, and JPEG compression cases. A software recipe
 must retain its original registration inputs, native transforms, commands,
@@ -233,6 +245,6 @@ version and defaults; generate native expected outputs; and declare transform
 direction and coordinate systems. Conversions tied to the original grids must
 retain those grids even when application inputs are regridded.
 
-This initial repository provides two package containers and one working
-generation/application/comparison path per package; it is not a complete
+This repository provides six package containers and native
+generation/application/comparison paths; it is not a complete
 matrix of every format supported by brainhops.

@@ -1,0 +1,37 @@
+Bootstrap: docker
+From: python@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113a07f
+
+%files
+    pyproject.toml /opt/brainhops-eval/pyproject.toml
+    src /opt/brainhops-eval/src
+    requirements /opt/brainhops-eval/requirements
+    software/_shared /opt/brainhops-eval/software/_shared
+    software/niftyreg /opt/brainhops-eval/software/niftyreg
+
+%post
+    set -eu
+    apt-get update
+    apt-get install -y --no-install-recommends git ca-certificates cmake g++ make zlib1g-dev
+    git clone --depth 1 --branch v2.1.2 https://github.com/KCL-BMEIS/niftyreg.git /tmp/niftyreg
+    test "$(git -C /tmp/niftyreg rev-parse HEAD)" = 79a17622608fda35dcce9c65560c834009e8743c
+    cmake -S /tmp/niftyreg -B /tmp/niftyreg-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/niftyreg -DBUILD_TESTING=OFF -DUSE_OPENMP=OFF
+    cmake --build /tmp/niftyreg-build --parallel 2
+    cmake --install /tmp/niftyreg-build
+    rm -rf /tmp/niftyreg /tmp/niftyreg-build /var/lib/apt/lists/*
+    python -m pip install --no-cache-dir -r /opt/brainhops-eval/requirements/fixtures.txt
+    python -m pip install --no-cache-dir --no-deps /opt/brainhops-eval
+    python -m pip freeze > /opt/fixture-environment.txt
+
+%environment
+    export PATH=/opt/niftyreg/bin:$PATH
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+
+%runscript
+    cd /opt/brainhops-eval
+    exec python -m software.niftyreg.generate "$@"
+
+%test
+    /opt/niftyreg/bin/reg_aladin --version
+    cd /opt/brainhops-eval
+    python -m software.niftyreg.generate --help
