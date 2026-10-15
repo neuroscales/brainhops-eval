@@ -170,7 +170,9 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
             record["raw_reference_metrics"] = raw_metrics
             passed = passed and all(check["passed"] for check in record.get("axis_interpretation", {}).values())
             record.update(status="pass" if passed else "fail", metrics=metrics)
-            montage(case_output / "comparison.png", reference_array, comparison_expected, actual)
+            montage(case_output / "comparison.png", reference_array, comparison_expected, actual,
+                    window=case.get("display_window"))
+            record["display_window"] = case.get("display_window")
             record["preview"] = f"{case['id']}/comparison.png"
         except Exception:
             record["error"] = traceback.format_exc()

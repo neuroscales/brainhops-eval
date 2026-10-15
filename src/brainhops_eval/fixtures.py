@@ -62,7 +62,7 @@ def generate(output, source=None):
     output.mkdir(parents=True, exist_ok=True)
     shape = (48, 52, 40)
     spacing = np.array([1.2, 1.1, 1.5])
-    provenance = {"kind": "analytic-phantom", "version": 1}
+    provenance = {"kind": "analytic-phantom", "version": 2}
     sample = phantom
     if source:
         source = Path(source)
@@ -123,7 +123,24 @@ def generate(output, source=None):
     new_affine = moving_affine @ np.diag([1.7, 1.7, 1.7, 1])
     save_nifti(output / "moving-downsampled.nii.gz",
                regrid(moving, moving_affine, new_shape, new_affine), new_affine)
-    save_nifti(output / "moving-uint8.nii.gz", np.clip(moving / 5, 0, 255).astype(np.uint8), moving_affine)
+    # Use a common intensity map for each moving/reference pair, with no
+    # NIfTI slope/intercept hiding the integer quantisation under test.
+    intensity_max = float(max(fixed.max(), moving.max()))
+    integer_ranges = {}
+    for dtype, upper in [(np.uint8, 255), (np.int8, 127)]:
+        name = np.dtype(dtype).name
+        factor = upper / intensity_max
+        for role, values, affine in [("moving", moving, moving_affine),
+                                      ("fixed", fixed, fixed_affine)]:
+            quantised = np.rint(np.clip(values * factor, 0, upper)).astype(dtype)
+            save_nifti(output / f"{role}-{name}.nii.gz", quantised, affine)
+            bins = int(np.unique(quantised).size)
+            if bins < 64:
+                raise ValueError(f"{role}-{name} occupies only {bins} integer bins")
+            integer_ranges[f"{role}-{name}"] = {
+                "occupied_bins": bins, "minimum": int(quantised.min()),
+                "maximum": int(quantised.max()), "scale_from_anatomy": factor}
+
     reference_shape = (39, 43, 33)
     reference_affine = grid(reference_shape, spacing * 1.25, np.deg2rad(13))
     save_nifti(output / "reference-oblique.nii.gz",
@@ -131,6 +148,8 @@ def generate(output, source=None):
     # Label maps share source geometry and use nearest interpolation.
     labels = ((moving > 250).astype(np.uint8) + (moving > 650).astype(np.uint8))
     save_nifti(output / "moving-labels.nii.gz", labels, moving_affine)
+    save_nifti(output / "fixed-labels.nii.gz",
+               (fixed > 250).astype(np.uint8) + (fixed > 650).astype(np.uint8), fixed_affine)
     landmarks = np.array([[-9, 2, 0], [10, -3, 3], [-14, -12, 10], [7, 14, -9]], dtype=float) * (spacing / [1.2, 1.1, 1.5])
     pull = np.linalg.inv(push)
     write_json(output / "landmarks.json", {
@@ -144,9 +163,13 @@ def generate(output, source=None):
         {"id": "left-handed", "moving": "moving-left-handed.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
         {"id": "moving-downsampled", "moving": "moving-downsampled.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
         {"id": "reference-oblique", "moving": "moving.nii.gz", "reference": "reference-oblique.nii.gz", "degree": 1},
-        {"id": "uint8", "moving": "moving-uint8.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
-        {"id": "labels", "moving": "moving-labels.nii.gz", "reference": "fixed.nii.gz", "degree": 0},
+        {"id": "uint8", "moving": "moving-uint8.nii.gz", "reference": "fixed-uint8.nii.gz", "degree": 1},
+        {"id": "int8", "moving": "moving-int8.nii.gz", "reference": "fixed-int8.nii.gz", "degree": 1},
+        {"id": "labels", "moving": "moving-labels.nii.gz", "reference": "fixed-labels.nii.gz", "degree": 0},
     ]
+    for variant in variants:
+        upper = {"uint8": 255, "int8": 127, "labels": 2}.get(variant["id"], intensity_max)
+        variant["display_window"] = [0, upper]
     # Native PNG uses a non-square row/column array, without DPI.
     yy, xx = np.indices((47, 63), dtype=float)
 
@@ -164,6 +187,7 @@ def generate(output, source=None):
     })
     write_json(output / "inputs.json", {
         "schema_version": 1, "source": provenance, "variants": variants,
+        "integer_intensities": integer_ranges,
         "raster_policy": {"storage_axes": ["y", "x"], "model_axes": ["x", "y"],
                           "pixel_centres": "integers", "origin": [0, 0],
                           "spacing": [1, 1], "direction": [[1, 0], [0, 1]],

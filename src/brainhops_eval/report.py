@@ -8,12 +8,14 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 
-def montage(path, reference, expected, actual):
+def montage(path, reference, expected, actual, window=None):
     # Subtract in float even when the acceptance comparison uses integer data.
     reference, expected, actual = [np.asarray(array, dtype=float)
                                    for array in (reference, expected, actual)]
     ndim = expected.ndim
-    lo, hi = float(min(reference.min(), expected.min())), float(max(reference.max(), expected.max()))
+    lo, hi = window if window is not None else (
+        float(min(reference.min(), expected.min(), actual.min())),
+        float(max(reference.max(), expected.max(), actual.max())))
     scale = max(hi - lo, 1e-12)
     error_scale = max(float(np.max(np.abs(actual - expected))), 1e-12)
     width, height = 190, 190
@@ -27,7 +29,7 @@ def montage(path, reference, expected, actual):
         tiles = ((indices[0] // 8 + indices[1] // 8) % 2).astype(bool)
         check = np.where(tiles, exp, got)
         for column, (label, array) in enumerate([
-            ("reference" + (f" (axis {axis})" if axis is not None else " (x/y)"), ref), ("package", exp), ("brainhops", got),
+            ("reference" + (f" (axis {axis})" if axis is not None else " (x/y)"), ref), (f"package [{lo:.3g}, {hi:.3g}]", exp), ("brainhops", got),
             ("checkerboard", check), (f"abs diff (max {error_scale:.3g})", abs(got - exp)),
         ]):
             pixels = np.clip((array / error_scale if column == 4 else (array - lo) / scale) * 255, 0, 255).astype(np.uint8)
@@ -65,6 +67,7 @@ def write_report(output, result):
         '<h1>brainhops evaluation</h1>'
         f'<p>Requested ref: {esc(result["brainhops_ref"])}; resolved commit: {esc(result["brainhops_sha"])}</p>'
         f'<p>Version: {esc(result["brainhops_version"])}; package: {esc(result["backend"])}; interface: {esc(result["interface"])}. '
+        'All anatomy and checkerboard panels share the displayed intensity window; only absolute differences use a separate scale. '
         'Slices use reference voxel axes; they are not anatomical orientation labels. '
         'Registration quality is recorded separately in <a href="registration.json">registration.json</a>. '
         'Boundary differences are reported separately from the interior pass criteria.</p>'

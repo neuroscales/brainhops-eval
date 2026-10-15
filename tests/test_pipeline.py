@@ -90,7 +90,7 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     result = read_json(report / "results.json")
     assert applied and all(identity in loaded for identity in applied)
     assert passed == all(case["status"] == "pass" for case in result["cases"])
-    assert len(result["cases"]) == 25
+    assert len(result["cases"]) == 29
     assert not any(case["id"] == "npy" for case in result["cases"])
     assert result["brainhops_ref"] == "test-ref"
     assert result["brainhops_sha"] == "test-sha"
@@ -130,3 +130,16 @@ def test_invalid_comparisons_cannot_pass(actual, mask):
     with pytest.raises(ValueError):
         compare(actual, np.zeros((3, 4)), mask)
 
+
+
+@pytest.mark.parametrize("dtype", ["uint8", "int8"])
+def test_integer_anatomy_uses_many_bins(inputs, dtype):
+    for role in ("fixed", "moving"):
+        image = nib.load(inputs / f"{role}-{dtype}.nii.gz")
+        values = np.asanyarray(image.dataobj)
+        assert values.dtype == np.dtype(dtype)
+        assert np.unique(values).size >= 64
+        assert np.ptp(values.astype(float)) >= 100
+        assert image.dataobj.slope == 1 and image.dataobj.inter == 0
+    variant = next(v for v in read_json(inputs / "inputs.json")["variants"] if v["id"] == dtype)
+    assert variant["reference"] == f"fixed-{dtype}.nii.gz"
