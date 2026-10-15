@@ -11,9 +11,10 @@ def test_download_verifies_bytes_and_repairs_cache(tmp_path, monkeypatch):
     data = b"anatomical image contents"
     checksum = hashlib.sha256(data).hexdigest()
     manifest = tmp_path / "sources.json"
+    (tmp_path / "LICENSE.txt").write_text("Example dataset license notice")
     write_json(manifest, {"datasets": {"test": {
         "url": "https://example.org/pinned/image.nii", "filename": "image.nii",
-        "sha256": checksum, "license": "CC0", "version": "snapshot-1",
+        "sha256": checksum, "license": "CC0", "version": "snapshot-1", "license_file": "LICENSE.txt",
     }}})
     calls = []
 
@@ -24,6 +25,7 @@ def test_download_verifies_bytes_and_repairs_cache(tmp_path, monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", download)
     target = fetch(manifest, "test", tmp_path / "cache")
     assert target.read_bytes() == data
+    assert target.with_name(target.name + ".LICENSE.txt").read_text() == "Example dataset license notice"
     assert read_json(target.with_name(target.name + ".source.json"))["sha256"] == checksum
     fetch(manifest, "test", tmp_path / "cache")
     assert len(calls) == 1

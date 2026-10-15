@@ -1,6 +1,7 @@
 """Download explicitly selected files, verifying bytes before caching."""
 
 import re
+import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
@@ -37,5 +38,8 @@ def fetch(manifest_path, name, cache):
             finally:
                 temporary.unlink(missing_ok=True)
     write_json(target.with_name(target.name + ".source.json"), entry)
+    if entry.get("license_file"):
+        license_path = relative_file(Path(manifest_path).resolve().parent, entry["license_file"])
+        shutil.copyfile(license_path, target.with_name(target.name + ".LICENSE.txt"))
     return target
 

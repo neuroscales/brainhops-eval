@@ -1,6 +1,7 @@
 """Deterministic synthetic anatomy and world-preserving grid changes."""
 
 from pathlib import Path
+import shutil
 
 import nibabel as nib
 import numpy as np
@@ -104,11 +105,15 @@ def generate(output, source=None):
         sidecar = source.with_name(source.name + ".source.json")
         if sidecar.exists():
             provenance["dataset"] = read_json(sidecar)
+        license_path = source.with_name(source.name + ".LICENSE.txt")
+        if license_path.exists():
+            shutil.copyfile(license_path, output / "source-LICENSE.txt")
 
     fixed_affine = grid(shape, spacing)
     fixed = sample(coordinates(shape, fixed_affine)).astype(np.float32)
     # The anatomical mapping moves moving RAS coordinates into fixed RAS.
     push = grid((1, 1, 1), (1, 1, 1), np.deg2rad(5))
+    push[:3, :3] = push[:3, :3] @ np.array([[1.03, 0.04, 0], [0, 0.97, 0.02], [0, 0, 1.02]])
     push[:3, 3] = spacing * np.array([2.5, -1.8, 1.2])
     moving_shape = (45, 49, 37)
     moving_affine = grid(moving_shape, spacing * 1.12, np.deg2rad(-7))

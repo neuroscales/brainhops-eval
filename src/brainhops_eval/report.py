@@ -23,12 +23,13 @@ def montage(path, reference, expected, actual):
         tiles = ((indices[0] // 8 + indices[1] // 8) % 2).astype(bool)
         check = np.where(tiles, exp, got)
         for column, (label, array) in enumerate([
-            ("reference", ref), ("package", exp), ("brainhops", got),
+            ("reference" + (f" (axis {axis})" if axis is not None else " (x/y)"), ref), ("package", exp), ("brainhops", got),
             ("checkerboard", check), (f"abs diff (max {error_scale:.3g})", abs(got - exp)),
         ]):
             pixels = np.clip((array / error_scale if column == 4 else (array - lo) / scale) * 255, 0, 255).astype(np.uint8)
             tile = Image.fromarray(pixels).convert("RGB")
-            tile.thumbnail((width, height))
+            factor = min(width / tile.width, height / tile.height)
+            tile = tile.resize((round(tile.width * factor), round(tile.height * factor)), Image.Resampling.NEAREST)
             x, y = column * width, row * (height + 35)
             draw.text((x + 4, y + 4), label, fill="black")
             canvas.paste(tile, (x + (width - tile.width) // 2, y + 25))

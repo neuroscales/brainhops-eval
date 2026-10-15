@@ -110,6 +110,8 @@ jobs:
         env:
           BACKEND: ${{ matrix.backend }}
         run: |
+          apptainer --version > work/apptainer-version.txt
+          git rev-parse HEAD > work/evaluator-commit.txt
           if [ -f "work/$BACKEND.sif" ]; then
             sha256sum "work/$BACKEND.sif" > work/container.sha256
             apptainer inspect --deffile "work/$BACKEND.sif" > work/container.def
@@ -131,5 +133,7 @@ jobs:
             work/container.sha256
             work/container.def
             work/container-packages.txt
+            work/apptainer-version.txt
+            work/evaluator-commit.txt
           if-no-files-found: warn
 

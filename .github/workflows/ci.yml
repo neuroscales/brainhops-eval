@@ -5,6 +5,7 @@ on:
   pull_request:
 permissions:
   contents: read
+  actions: read
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -23,4 +24,10 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -e '.[simpleitk,test]' './work/brainhops-source[nifti,pillow,itk]'
       - run: pytest -q
+  interoperability:
+    uses: ./.github/workflows/evaluate.yml
+    with:
+      brainhops_ref: main
+      packages: all
+      interface: python
 

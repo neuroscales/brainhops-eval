@@ -5,6 +5,18 @@ The initial local evaluation used brainhops commit
 binaries from the digest-pinned 2.6.0 image. Full Python dependency versions
 are recorded in each generated report; they are not inferred from image tags.
 
+| Local check | Result |
+| --- | --- |
+| Tooling tests | 11 passed |
+| SimpleITK synthetic comparisons | 26/26 passed; worst interior absolute error 0.000733 |
+| ANTs synthetic comparisons | 30/30 passed; worst interior absolute error 0.00184 |
+| Anatomical download-path comparisons | 22/22 passed; worst interior absolute error 0.000992 |
+| GitHub workflow syntax and expressions | actionlint 1.7.7 passed |
+
+The anatomical check predates the additional handedness case. The ANTs image
+tag is `v2.6.0`; the binaries report `2.6.0.dev1-gcff4f8b`, which is recorded
+verbatim in fixture provenance.
+
 ## Explicit Python geometry path
 
 The SimpleITK suite covers known and estimated transforms serialized as TFM
@@ -28,7 +40,7 @@ composing it with the input geometry. The documented invocation therefore
 applies the opposite mapping in this version.
 
 With the known-transform native-grid case, the documented CLI invocation had
-an interior maximum absolute error of about 578 intensity units. The same
+an interior maximum absolute error of about 612 intensity units. The same
 fixture passed through explicit Python geometry composition with maximum
 absolute error below 0.001. The float32 downsampled case also failed in CLI
 mode, so integer output quantization does not explain the discrepancy.

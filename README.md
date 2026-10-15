@@ -63,6 +63,9 @@ artifacts belong to the calling workflow's repository, so `fixtures_run_id`
 must refer to a run in that repository. Internal calls and manual runs check out
 the evaluation workflow's own commit automatically.
 
+Pull-request CI runs the tooling tests and the complete container-based Python
+evaluation against brainhops `main`, using both reference packages.
+
 ## Run locally
 
 Python 3.11+ is required. The selected brainhops version is installed separately:
@@ -130,6 +133,10 @@ Each package applies a known affine and its estimated registration across:
   anatomical coordinate frame.
 - `int16`, `uint8`, and `float32` input files; nearest-neighbor label maps.
 - Transform serialization round trips, independently checked on physical points.
+
+The known affine includes rotation, translation, nonuniform scaling, and shear.
+The estimated registration is rigid, so its anatomical fit is deliberately
+imperfect; interoperability is checked against its actual estimated mapping.
 
 SimpleITK additionally probes native PNG reader defaults and the explicit
 `GetImageFromArray` path for NPY. Both use matching, asymmetric non-square

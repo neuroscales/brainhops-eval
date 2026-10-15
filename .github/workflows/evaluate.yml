@@ -135,6 +135,7 @@ jobs:
           BRAINHOPS_SHA: ${{ needs.resolve.outputs.sha }}
           INTERFACE: ${{ inputs.interface }}
         run: |
+          export BRAINHOPS_EVAL_SHA="$(git rev-parse HEAD)"
           brainhops-eval evaluate --fixtures work/fixtures --output work/report \
             --brainhops-ref "$BRAINHOPS_REF" --brainhops-sha "$BRAINHOPS_SHA" \
             --interface "$INTERFACE"

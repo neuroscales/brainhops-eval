@@ -1,6 +1,7 @@
 """Evaluate an immutable reference fixture with the installed brainhops."""
 
 import importlib.metadata
+import os
 import platform
 import subprocess
 import sys
@@ -56,6 +57,8 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
     manifest = read_json(fixtures / "cases.json")
     probes = read_json(fixtures / "geometry-probes.json")
     result = {"schema_version": 1, "brainhops_ref": brainhops_ref,
+              "evaluator_version": importlib.metadata.version("brainhops-eval"),
+              "evaluator_sha": os.environ.get("BRAINHOPS_EVAL_SHA", "unknown"),
               "brainhops_sha": brainhops_sha,
               "brainhops_version": importlib.metadata.version("brainhops"),
               "fixture_manifest_sha256": digest(fixtures / "manifest.json"),
