@@ -6,12 +6,14 @@ import platform
 import subprocess
 import sys
 import traceback
+import warnings
 from pathlib import Path
 
 import nibabel as nib
 import numpy as np
 
 from .files import digest, read_json, relative_file, verify, write_json
+from .axes import raster_axis_check
 from .report import montage, write_report
 
 
@@ -43,7 +45,6 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
     # Only this stage imports brainhops. Native fixtures are reusable across refs.
     import brainhops.io as bio
     from brainhops.backends import set_backend
-    from brainhops.datamodel.transformations import Affine
 
     set_backend("numpy")
 
@@ -87,10 +88,13 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
                     process.check_returncode()
                 else:
-                    source = bio.load(src)
-                    reference = bio.load(ref)
+                    source = bio.images.load(src)
+                    reference = bio.images.load(ref)
                     pull = bio.load(transform)
-                    resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter("always")
+                        resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
+                    record["warnings"] = [str(warning.message) for warning in caught]
                     bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
                 reference = nib.load(ref)
@@ -112,16 +116,21 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                         raise ValueError("Nearest interpolation introduced a new label value")
             else:
                 pull = bio.load(transform)
-                source = bio.load(src)
-                reference = bio.load(ref)
-                if case["kind"] == "png":
-                    record["native_moving_geometry"] = np.asarray(source.transformation.to(Affine).matrix).tolist()
-                    record["native_reference_geometry"] = np.asarray(reference.transformation.to(Affine).matrix).tolist()
-                actual = np.asarray(source(pull).reslice(reference, degree=1, bound="constant").data)
+                source = bio.images.load(src)
+                reference = bio.images.load(ref)
+                record["axis_interpretation"] = {
+                    "moving": raster_axis_check(source, src, probes[case["kind"]]["moving"]),
+                    "reference": raster_axis_check(reference, ref, probes[case["kind"]]["reference"]),
+                }
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    actual = np.asarray(source(pull).reslice(reference, degree=1, bound="constant").data)
+                record["warnings"] = [str(warning.message) for warning in caught]
                 reference_array = np.asarray(reference.data)
                 np.save(case_output / "brainhops.npy", actual)
-                record["geometry_policy"] = "unmodified io.load defaults"
+                record["geometry_policy"] = "unmodified io.images.load defaults"
             passed, metrics = compare(actual, expected, mask, atol=1e-5 if case["degree"] == 0 else 0.02)
+            passed = passed and all(check["passed"] for check in record.get("axis_interpretation", {}).values())
             record.update(status="pass" if passed else "fail", metrics=metrics)
             montage(case_output / "comparison.png", reference_array, expected, actual)
             record["preview"] = f"{case['id']}/comparison.png"

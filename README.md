@@ -139,12 +139,15 @@ The estimated registration is rigid, so its anatomical fit is deliberately
 imperfect; interoperability is checked against its actual estimated mapping.
 
 SimpleITK additionally probes native PNG reader defaults and the explicit
-`GetImageFromArray` reference path for NPY. Evaluation loads every source,
-reference, and transform with brainhops `io.load` and applies the transform
+`GetImageFromArray` reference path for NPY. Evaluation loads sources and references with `io.images.load` and transforms
+with `io.load`, then applies the transform
 directly to the returned image. It does not reconstruct images, cast their
 data, transpose their arrays, or attach replacement geometry. Unsupported
 loaders and incompatible model spaces are recorded as errors rather than
-worked around. Package geometry probes remain in the fixture provenance.
+worked around. Package geometry probes remain in the fixture provenance. Raster axis checks
+compare the loaded shape, pixel order, and numeric voxel-to-model map against
+those probes. Axis names, units, orientations, and bridging warnings are
+recorded in JSON and HTML. No anatomical orientation is inferred when absent.
 
 ## Comparison semantics
 
@@ -156,7 +159,7 @@ source(native_pull).reslice(reference, ...)
 ```
 
 The image call accepts the pull map and handles geometry composition before
-reslicing onto the reference grid. The object returned by `io.load` is used
+reslicing onto the reference grid. The object returned by `io.images.load` is used
 unchanged. Native reference outputs compute in float32; brainhops chooses its
 output dtype through its normal API. Integer output quantization can therefore
 fail comparison, and is reported rather than hidden by an input cast.
@@ -172,7 +175,7 @@ are displayed in voxel axes, not falsely labelled as anatomical planes.
 The optional CLI path passes `transform|inv`, following the current CLI's
 documented push convention, and retains native input dtypes. It is a separate
 contract test and may expose CLI direction or integer-quantization differences.
-PNG/NPY use direct application to `io.load` results in either mode;
+PNG/NPY use direct application to `io.images.load` results in either mode;
 each result records the interface it actually exercised.
 No version-specific inversion is silently substituted. See
 [validation notes](docs/validation.md) for observed behavior.

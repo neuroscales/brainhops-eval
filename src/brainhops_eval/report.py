@@ -1,6 +1,7 @@
 """Portable visual reports without a web service or JavaScript dependency."""
 
 import html
+import json
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +45,10 @@ def write_report(output, result):
         sections.append(
             f'<section><h2>{esc(case["id"])}: {esc(case["status"])}</h2>'
             f'<pre>{esc(case.get("error", metrics))}</pre>'
+            + (f'<h3>Axis interpretation</h3><pre>{esc(json.dumps(case["axis_interpretation"], indent=2))}</pre>'
+               if "axis_interpretation" in case else "")
+            + (f'<h3>Warnings</h3><pre>{esc(chr(10).join(case["warnings"]))}</pre>'
+               if case.get("warnings") else "")
             + (f'<img src="{esc(case["preview"])}" alt="Comparison for {esc(case["id"])}">' if "preview" in case else "")
             + "</section>"
         )

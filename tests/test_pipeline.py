@@ -68,7 +68,7 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     from brainhops.datamodel.images import SingleScaleImage
 
     loaded, applied = set(), []
-    original_load, original_call = bio.load, SingleScaleImage.__call__
+    original_load, original_call = bio.images.load, SingleScaleImage.__call__
 
     def track_load(*args, **kwargs):
         image = original_load(*args, **kwargs)
@@ -82,7 +82,7 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
         assert id(image) in loaded
         return original_call(image, transform)
 
-    monkeypatch.setattr(bio, "load", track_load)
+    monkeypatch.setattr(bio.images, "load", track_load)
     monkeypatch.setattr(SingleScaleImage, "__call__", track_call)
     report = tmp_path / "report"
     passed = evaluate(fixtures, report, brainhops_ref="test-ref", brainhops_sha="test-sha")
@@ -93,6 +93,11 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     assert result["brainhops_ref"] == "test-ref"
     assert result["brainhops_sha"] == "test-sha"
     assert "test-sha" in (report / "index.html").read_text()
+    png = next(case for case in result["cases"] if case["id"] == "png")
+    assert set(png["axis_interpretation"]) == {"moving", "reference"}
+    assert "warnings" in png
+    npy = next(case for case in result["cases"] if case["id"] == "npy")
+    assert "NpyMatrixAffine" not in npy.get("error", "")
     for case in result["cases"]:
         if case["status"] == "error":
             assert case["error"]

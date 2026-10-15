@@ -1,11 +1,11 @@
 # Validation notes
 
 Evaluation applies native pull transforms directly to the objects returned by
-`brainhops.io.load`:
+`brainhops.io.images.load`:
 
 ```python
-source = io.load(source_path)
-reference = io.load(reference_path)
+source = io.images.load(source_path)
+reference = io.images.load(reference_path)
 pull = io.load(transform_path)
 resliced = source(pull).reslice(reference, ...)
 ```
@@ -20,7 +20,7 @@ Those workarounds have been removed.
 Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
 
 - SimpleITK synthetic fixtures: 9 pass, 16 fail numerical comparison, and
-  1 fails loading (NPY).
+  1 fails image-only loading (NPY).
 - ANTs synthetic fixtures: 10 pass and 20 fail numerical comparison.
 - Integer NIfTI linear interpolation retains integer output and differs from
   the float32 native reference by up to approximately 0.5 intensity units.
@@ -29,8 +29,9 @@ Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
 - PNG passes without a geometry adapter, but brainhops warns that some axes
   were matched by position because names, units, or orientations did not
   distinguish them.
-- NPY fails in `io.load`: the loader attempts `NpyMatrixAffine`, which rejects
-  the image array's `(47, 63)` shape. No NumPy-loader fallback is substituted.
+- NPY is explicitly dispatched through `io.images.load`, avoiding matrix
+  ambiguity. The tested commit has no registered image parser recognizing
+  this file, so loading still fails. No NumPy-loader fallback is substituted.
 
 The native reference computes in float32. These results expose an output-dtype
 policy difference; they do not by themselves establish that integer rounding
@@ -41,8 +42,19 @@ library behavior or an explicitly agreed comparison policy changes.
 The tooling tests independently check native resampling against known RAS
 mappings, landmark positions, fixture integrity, dataset checksums, and report
 creation. They also verify that image application uses the same object that
-`io.load` returned. Reporting tests distinguish evaluator correctness from
+`io.images.load` returned. Reporting tests distinguish evaluator correctness from
 whether the selected brainhops version agrees with native references.
+
+## Axis interpretation
+
+Raster checks independently compare the package-probed size and grid mapping
+with the loaded image, and compare its pixel order with the file storage order
+interpreted by the native package. Checks can fail even when resampled values
+match. The report retains both grid maps and the loaded axis names, units,
+and orientations. The image is not relabelled or transformed to satisfy these
+checks. Tests verify detection of swapped dimensions and flipped directions.
+Bridge warnings are captured in the report; unknown anatomical orientation
+is not silently treated as known.
 
 ## CLI convention
 
