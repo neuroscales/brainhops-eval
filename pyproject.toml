@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brainhops-eval"
+version = "0.1.0"
+description = "Reproducible registration and resampling interoperability fixtures"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "nibabel>=5.2", "pillow>=10"]
+
+[project.optional-dependencies]
+simpleitk = ["SimpleITK==2.5.2"]
+test = ["pytest>=8", "PyYAML>=6"]
+
+[project.scripts]
+brainhops-eval = "brainhops_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
