@@ -1,0 +1,130 @@
+name: Generate native fixtures
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Reference package(s)
+        type: choice
+        options: [simpleitk, ants, all]
+        default: simpleitk
+      dataset:
+        description: Image source
+        type: choice
+        options: [phantom, nibabel-anatomical]
+        default: phantom
+  workflow_call:
+    inputs:
+      packages:
+        type: string
+        default: simpleitk
+      dataset:
+        type: string
+        default: phantom
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-24.04
+    outputs:
+      packages: ${{ steps.configure.outputs.packages }}
+    steps:
+      - id: configure
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          DATASET: ${{ inputs.dataset }}
+        run: |
+          python - <<'PY'
+          import json, os
+          packages = os.environ['PACKAGES']
+          assert packages in ('simpleitk', 'ants', 'all'), 'Unknown package selection'
+          assert os.environ['DATASET'] in ('phantom', 'nibabel-anatomical'), 'Unknown dataset'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('packages=' + json.dumps(['simpleitk', 'ants'] if packages == 'all' else [packages]) + '\n')
+          PY
+
+  generate:
+    needs: configure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON(needs.configure.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements/fixtures.txt
+      - name: Install fixture tooling
+        run: python -m pip install -r requirements/fixtures.txt .
+      - name: Install Apptainer
+        run: |
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt-get update
+          sudo apt-get install -y apptainer
+          mkdir -p work
+      - name: Cache the package SIF
+        id: sif
+        uses: actions/cache@v4
+        with:
+          path: work/${{ matrix.backend }}.sif
+          key: sif-amd64-${{ matrix.backend }}-${{ hashFiles('containers/**', 'requirements/**', 'src/**', 'pyproject.toml') }}
+      - name: Build package container
+        if: steps.sif.outputs.cache-hit != 'true'
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: sudo apptainer build "work/$BACKEND.sif" "containers/$BACKEND.def"
+      - name: Generate inputs
+        env:
+          DATASET: ${{ inputs.dataset }}
+        run: |
+          if [ "$DATASET" = phantom ]; then
+            brainhops-eval generate --output work/inputs
+          else
+            source_path=$(brainhops-eval fetch "$DATASET")
+            brainhops-eval generate --source "$source_path" --output work/inputs
+          fi
+      - name: Register and apply native transforms
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: |
+          apptainer exec --cleanenv --containall --pwd /work \
+            --bind "$PWD/work:/work" "work/$BACKEND.sif" \
+            brainhops-eval reference --backend "$BACKEND" \
+            --inputs /work/inputs --output /work/fixtures \
+            --container-image "/work/$BACKEND.sif"
+      - name: Save container provenance
+        if: always()
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: |
+          if [ -f "work/$BACKEND.sif" ]; then
+            sha256sum "work/$BACKEND.sif" > work/container.sha256
+            apptainer inspect --deffile "work/$BACKEND.sif" > work/container.def
+            apptainer exec --cleanenv "work/$BACKEND.sif" cat /opt/fixture-environment.txt > work/container-packages.txt
+          fi
+      - name: Upload native fixture bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixtures-${{ matrix.backend }}
+          path: work/fixtures/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload build provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-${{ matrix.backend }}
+          path: |
+            work/container.sha256
+            work/container.def
+            work/container-packages.txt
+          if-no-files-found: warn
+

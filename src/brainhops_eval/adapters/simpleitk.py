@@ -80,7 +80,7 @@ def command(arguments, log):
     result.check_returncode()
 
 
-def build(inputs, output, backend="simpleitk"):
+def build(inputs, output, backend="simpleitk", container_image=None):
     inputs, output = Path(inputs).resolve(), Path(output).resolve()
     verify(inputs, read_json(inputs / "manifest.json"))
     if output.exists() and any(output.iterdir()):
@@ -125,6 +125,7 @@ def build(inputs, output, backend="simpleitk"):
     registration["landmark_error_mm"] = np.linalg.norm(observed - moving_lps, axis=1).tolist()
     write_json(output / "registration.json", {"backend": backend,
                "simpleitk_version": sitk.Version_VersionString(),
+               "container_sha256": digest(container_image) if container_image else None,
                "threads": 1, "registration": registration})
 
     definitions = read_json(inputs / "inputs.json")["variants"]

@@ -17,11 +17,13 @@ def main():
     reference.add_argument("--inputs", required=True)
     reference.add_argument("--output", required=True)
     reference.add_argument("--backend", choices=["simpleitk", "ants"], default="simpleitk")
+    reference.add_argument("--container-image", help="Record the generating SIF checksum")
     evaluate = commands.add_parser("evaluate", help="Compare the installed brainhops with native expectations")
     evaluate.add_argument("--fixtures", required=True)
     evaluate.add_argument("--output", required=True)
     evaluate.add_argument("--brainhops-ref", default="installed")
     evaluate.add_argument("--brainhops-sha", default="unknown")
+    evaluate.add_argument("--interface", choices=["python", "cli"], default="python")
     args = vars(parser.parse_args())
     command = args.pop("command")
     if command == "fetch":

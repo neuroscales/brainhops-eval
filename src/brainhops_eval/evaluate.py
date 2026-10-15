@@ -39,10 +39,14 @@ def compare(actual, expected, mask, atol=0.02, nrmse_limit=2e-5):
     return maximum <= atol and nrmse <= nrmse_limit, metrics
 
 
-def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown"):
+def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown", interface="python"):
     # Only this stage imports brainhops. Native fixtures are reusable across refs.
     import brainhops.io as bio
+    from brainhops.backends import set_backend
+    from brainhops.datamodel.images import SingleScaleImage
     from brainhops.datamodel.transformations import Affine
+
+    set_backend("numpy")
 
     fixtures, output = Path(fixtures).resolve(), Path(output).resolve()
     if output.exists() and any(output.iterdir()):
@@ -55,7 +59,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
               "brainhops_sha": brainhops_sha,
               "brainhops_version": importlib.metadata.version("brainhops"),
               "fixture_manifest_sha256": digest(fixtures / "manifest.json"),
-              "backend": manifest["backend"], "python": platform.python_version(),
+              "backend": manifest["backend"], "interface": interface, "python": platform.python_version(),
               "packages": {dist.metadata["Name"]: dist.version for dist in importlib.metadata.distributions()},
               "registration": read_json(fixtures / "registration.json"), "cases": []}
     for case in manifest["cases"]:
@@ -68,12 +72,27 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
             mask = np.load(relative_file(fixtures, case["mask"]), allow_pickle=False).astype(bool)
             if case["kind"] == "nifti":
                 actual_path = case_output / "brainhops.nii.gz"
-                args = [sys.executable, "-m", "brainhops", "reslice", str(src),
-                        "--reference", str(ref), "--transform", f"{transform}|inv",
-                        "--output", str(actual_path), "--degree", str(case["degree"]), "--bound", "constant"]
-                process = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
-                process.check_returncode()
+                if interface == "cli":
+                    # Follow the documented push convention. A version whose CLI
+                    # differs should fail visibly rather than be special-cased.
+                    args = [sys.executable, "-m", "brainhops", "reslice", str(src),
+                            "--reference", str(ref), "--transform", f"{transform}|inv",
+                            "--output", str(actual_path), "--degree", str(case["degree"]), "--bound", "constant"]
+                    process = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
+                    process.check_returncode()
+                else:
+                    source = bio.images.load(src)
+                    reference = bio.images.load(ref)
+                    pull = bio.transformations.load(transform)
+                    # State the geometry algebra explicitly, independently of
+                    # the calling convention of Image.__call__ in a given ref.
+                    moved = SingleScaleImage(
+                        data=np.asarray(source.data, dtype=np.float32),
+                        transformations=[pull.inverse() @ source.transformation],
+                    )
+                    resliced = moved.reslice(reference, degree=case["degree"], bound="constant")
+                    bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
                 reference = nib.load(ref)
                 actual = image.get_fdata()
@@ -90,7 +109,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                 arrays = []
                 for label, path in [("moving", src), ("reference", ref)]:
                     if case["kind"] == "png":
-                        loaded = bio.images.load(path, backend="numpy")
+                        loaded = bio.images.load(path)
                         data = np.asarray(loaded.data)
                         record[f"native_{label}_geometry"] = np.asarray(loaded.transformation.to(Affine).matrix).tolist()
                     else:
@@ -99,7 +118,9 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     arrays.append(with_package_geometry(data, probes[case["kind"]][label],
                                                         pull.output if label == "moving" else pull.input))
                 moving, reference = arrays
-                actual = np.asarray(moving(pull.inverse()).reslice(reference, degree=1, bound="constant").data)
+                moved = SingleScaleImage(data=np.asarray(moving.data, dtype=np.float32),
+                                         transformations=[pull.inverse() @ moving.transformation])
+                actual = np.asarray(moved.reslice(reference, degree=1, bound="constant").data)
                 reference_array = np.asarray(reference.data)
                 np.save(case_output / "brainhops.npy", actual)
                 record["geometry_policy"] = case["geometry_policy"]
