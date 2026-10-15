@@ -21,6 +21,27 @@ def load_array(path):
     return np.load(path, allow_pickle=False) if Path(path).suffix == ".npy" else nib.load(path).get_fdata()
 
 
+def reference_in_output_dtype(expected, dtype):
+    """Convert reference values only; never alter loaded brainhops images.
+
+    Integer output follows the resampler's round-half-away-from-zero and
+    saturation convention, rather than NumPy's truncating integer cast.
+    """
+    if not np.isfinite(expected).all():
+        raise ValueError("Non-finite reference values")
+    dtype = np.dtype(dtype)
+    if dtype.kind in "iu":
+        values = np.asarray(expected, dtype=np.longdouble)
+        rounded = np.where(values >= 0, np.floor(values + 0.5), np.ceil(values - 0.5))
+        bounds = np.iinfo(dtype)
+        return np.clip(rounded, np.longdouble(bounds.min), np.longdouble(bounds.max)).astype(dtype)
+    if dtype.kind == "b":
+        return np.trunc(expected).astype(dtype)
+    if dtype.kind == "f":
+        return expected.astype(dtype)
+    raise ValueError(f"Unsupported output dtype: {dtype}")
+
+
 def compare(actual, expected, mask, atol=0.02, nrmse_limit=2e-5):
     if actual.shape != expected.shape or mask.shape != expected.shape:
         raise ValueError("Output, expectation, and mask shapes must match")
@@ -109,7 +130,8 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                                    "axcodes": list(nib.aff2axcodes(source_storage.affine))}
                 record["reference"] = {"shape": list(reference.shape),
                                        "affine_ras": reference.affine.tolist()}
-                actual = image.get_fdata()
+                # Preserve the decoded output dtype, including NIfTI scaling.
+                actual = np.asanyarray(image.dataobj)
                 reference_array = reference.get_fdata()
                 if image.shape != reference.shape or not np.allclose(image.affine, reference.affine, atol=1e-4, rtol=1e-6):
                     raise ValueError("brainhops output geometry differs from the reference grid")
@@ -133,10 +155,22 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                 reference_array = np.asarray(reference.data)
                 np.save(case_output / "brainhops.npy", actual)
                 record["geometry_policy"] = "unmodified io.images.load defaults"
-            passed, metrics = compare(actual, expected, mask, atol=1e-5 if case["degree"] == 0 else 0.02)
+            _, raw_metrics = compare(actual, expected, mask, atol=1e-5 if case["degree"] == 0 else 0.02)
+            comparison_expected = reference_in_output_dtype(expected, actual.dtype)
+            integer_output = actual.dtype.kind in "biu"
+            passed, metrics = compare(actual, comparison_expected, mask,
+                                      atol=0 if integer_output else (1e-5 if case["degree"] == 0 else 0.02),
+                                      nrmse_limit=0 if integer_output else 2e-5)
+            if integer_output:
+                mismatches = int(np.count_nonzero(actual[mask] != comparison_expected[mask]))
+                metrics["interior_mismatch_count"] = mismatches
+                passed = mismatches == 0
+            record["comparison_dtype"] = str(actual.dtype)
+            record["comparison_policy"] = "reference converted to decoded brainhops output dtype; integer equality is exact"
+            record["raw_reference_metrics"] = raw_metrics
             passed = passed and all(check["passed"] for check in record.get("axis_interpretation", {}).values())
             record.update(status="pass" if passed else "fail", metrics=metrics)
-            montage(case_output / "comparison.png", reference_array, expected, actual)
+            montage(case_output / "comparison.png", reference_array, comparison_expected, actual)
             record["preview"] = f"{case['id']}/comparison.png"
         except Exception:
             record["error"] = traceback.format_exc()

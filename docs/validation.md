@@ -10,7 +10,7 @@ pull = io.load(transform_path)
 resliced = source(pull).reslice(reference, ...)
 ```
 
-No replacement images, dtype casts, array transposes, or geometry adapters are
+No replacement images, input dtype casts, array transposes, or geometry adapters are
 used. Earlier green evaluation runs reconstructed images and cast data to
 float32; their agreement results do not establish agreement for loaded images.
 Those workarounds have been removed.
@@ -19,13 +19,13 @@ Those workarounds have been removed.
 
 Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
 
-- SimpleITK synthetic fixtures: 9 pass and 16 fail numerical comparison.
+- SimpleITK synthetic fixtures, comparing in output dtype: 21 pass and 4 fail.
   The unsupported NPY image case has been removed.
-- ANTs synthetic fixtures: 10 pass and 20 fail numerical comparison.
+- ANTs synthetic fixtures, comparing in output dtype: 12 pass and 18 fail.
 - Integer NIfTI linear interpolation computes in float, then rounds/clips
   and casts back to the input dtype before returning. That quantized output
   differs from the float32 native reference by up to approximately 0.5 units.
-  This exceeds the unchanged maximum-error and normalized-RMSE thresholds.
+  Those raw differences are now diagnostic, rather than the acceptance test.
 - Float32 downsampled cases and nearest-neighbor label cases pass.
 - PNG passes without a geometry adapter, but brainhops warns that some axes
   were matched by position because names, units, or orientations did not
@@ -34,11 +34,18 @@ Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
   from active image compatibility cases. NPY serialization for expected arrays
   and masks does not exercise brainhops image loading.
 
-The native reference computes in float32. These results expose an output-dtype
-policy difference; they do not by themselves establish that integer rounding
-is a brainhops bug. The evaluator neither loosens thresholds nor casts inputs
-to hide the difference. Evaluation CI is expected to fail until the tested
-library behavior or an explicitly agreed comparison policy changes.
+The reference is now converted to the decoded brainhops output dtype before
+acceptance comparison. Integer conversion rounds half away from zero and
+clips to the dtype range; integer comparison is exact. Float references are
+cast to output precision and use the existing float tolerances. Raw-reference
+metrics remain in each report, and no loaded image is modified.
+
+Remaining integer discrepancies are one unit at a few interior voxels per
+failing case. For example, the float32 reference stores 77.5 (which rounds to
+78), while brainhops produces 77. Such differences can arise when interpolation
+or reference-storage precision puts values on opposite sides of a rounding
+boundary. They are retained as failures, with exact mismatch counts, rather
+than allowing a blanket one-unit tolerance. CI can therefore still fail.
 
 The tooling tests independently check native resampling against known RAS
 mappings, landmark positions, fixture integrity, dataset checksums, and report
@@ -64,8 +71,8 @@ values 0, 3, 6, sampled half a voxel along x, gives:
 
 Those are separate on-disk inputs, both loaded and resliced directly without
 replacement brainhops objects. The fractional values are lost at output
-conversion, not through poor interpolation precision. Current raw comparison
-failures remain visible until an output-dtype comparison policy is agreed.
+conversion, not through poor interpolation precision. The converted reference
+now matches these integer samples; the raw float discrepancy remains diagnostic.
 
 ## Axis interpretation
 

@@ -9,6 +9,9 @@ from PIL import Image, ImageDraw
 
 
 def montage(path, reference, expected, actual):
+    # Subtract in float even when the acceptance comparison uses integer data.
+    reference, expected, actual = [np.asarray(array, dtype=float)
+                                   for array in (reference, expected, actual)]
     ndim = expected.ndim
     lo, hi = float(min(reference.min(), expected.min())), float(max(reference.max(), expected.max()))
     scale = max(hi - lo, 1e-12)
@@ -45,6 +48,9 @@ def write_report(output, result):
         sections.append(
             f'<section><h2>{esc(case["id"])}: {esc(case["status"])}</h2>'
             f'<pre>{esc(case.get("error", metrics))}</pre>'
+            + (f'<p>Comparison dtype: {esc(case["comparison_dtype"])}</p>'
+               f'<h3>Raw float-reference differences (diagnostic)</h3><pre>{esc(case["raw_reference_metrics"])}</pre>'
+               if "comparison_dtype" in case else "")
             + (f'<h3>Axis interpretation</h3><pre>{esc(json.dumps(case["axis_interpretation"], indent=2))}</pre>'
                if "axis_interpretation" in case else "")
             + (f'<h3>Warnings</h3><pre>{esc(chr(10).join(case["warnings"]))}</pre>'
@@ -62,6 +68,9 @@ def write_report(output, result):
         'Slices use reference voxel axes; they are not anatomical orientation labels. '
         'Registration quality is recorded separately in <a href="registration.json">registration.json</a>. '
         'Boundary differences are reported separately from the interior pass criteria.</p>'
+        '<p>Package values and image panels are converted to the decoded brainhops output dtype. '
+        'Integer comparisons require exact interior equality after rounding and saturation. '
+        'Differences against the original floating reference remain diagnostic.</p>'
         '<p><a href="results.json">Machine-readable results and provenance</a></p>'
         + "".join(sections) + "</html>"
     )

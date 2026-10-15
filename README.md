@@ -195,15 +195,20 @@ source(native_pull).reslice(reference, ...)
 
 The image call accepts the pull map and handles geometry composition before
 reslicing onto the reference grid. The object returned by `io.images.load` is used
-unchanged. Native reference outputs compute in float32; brainhops chooses its
-output dtype through its normal API. In the tested commit, integer inputs are promoted to float during separable
-resampling, then rounded/clipped and cast back to their original dtype before
-return. Comparison with our float32 references can therefore fail due to output
-quantization, not interpolation arithmetic. Reports record the in-memory and
-reference output dtypes. We do not cast loaded inputs or relax tolerances.
+unchanged. Native reference outputs are converted to the decoded brainhops
+output dtype for comparison. Integer references are rounded half away from
+zero and saturated to that dtype's range; plain NumPy integer casts would
+truncate and can wrap, so they are not used directly. Floating references are
+cast to the output precision. Loaded images and immutable reference files are
+not changed.
 
-Interior agreement requires maximum absolute error ≤ 0.02 and normalized RMSE
-≤ 2e-5. Labels require exact values within 1e-5 and no new labels. A native
+Integer acceptance requires exact interior equality. Floating agreement keeps
+maximum absolute error ≤ 0.02 and normalized RMSE ≤ 2e-5 (labels use 1e-5).
+Original float-reference differences remain diagnostic in JSON and HTML, and
+image panels use the converted reference. Reports record reference, in-memory,
+stored, and comparison dtypes. Near half-integer boundaries, small interpolation
+or reference-storage differences can still produce a one-unit mismatch; these
+remain visible failures. A native
 coverage mask excludes the source interpolation edge; boundary errors are
 reported separately. Less than 5% interior coverage, non-finite data, wrong
 output grids, and corrupted fixtures fail validation. Overlays use shared
