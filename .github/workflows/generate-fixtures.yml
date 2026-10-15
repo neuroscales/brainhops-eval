@@ -15,6 +15,9 @@ on:
         default: phantom
   workflow_call:
     inputs:
+      evaluator_ref:
+        type: string
+        default: main
       packages:
         type: string
         default: simpleitk
@@ -56,6 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: neuroscales/brainhops-eval
+          ref: ${{ github.repository == 'neuroscales/brainhops-eval' && github.sha || inputs.evaluator_ref }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:

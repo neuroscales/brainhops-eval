@@ -121,6 +121,10 @@ def generate(output, source=None):
     moving = nib.orientations.apply_orientation(moving, orient)
     save_nifti(output / "fixed.nii.gz", fixed, fixed_affine)
     save_nifti(output / "moving.nii.gz", moving, moving_affine)
+    reflection = np.eye(4)
+    reflection[0, 0] = -1
+    reflection[0, 3] = moving.shape[0] - 1
+    save_nifti(output / "moving-left-handed.nii.gz", moving[::-1], moving_affine @ reflection)
 
     new_shape = tuple(np.ceil((np.array(moving.shape) - 1) / 1.7).astype(int) + 1)
     new_affine = moving_affine @ np.diag([1.7, 1.7, 1.7, 1])
@@ -146,6 +150,7 @@ def generate(output, source=None):
     })
     variants = [
         {"id": "native", "moving": "moving.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
+        {"id": "left-handed", "moving": "moving-left-handed.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
         {"id": "moving-downsampled", "moving": "moving-downsampled.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
         {"id": "reference-oblique", "moving": "moving.nii.gz", "reference": "reference-oblique.nii.gz", "degree": 1},
         {"id": "uint8", "moving": "moving-uint8.nii.gz", "reference": "fixed.nii.gz", "degree": 1},

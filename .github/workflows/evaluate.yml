@@ -30,6 +30,10 @@ on:
         default: ''
   workflow_call:
     inputs:
+      evaluator_ref:
+        description: brainhops-eval ref to check out when called from another repository
+        type: string
+        default: main
       brainhops_ref:
         type: string
         required: true
@@ -89,6 +93,7 @@ jobs:
     with:
       packages: ${{ inputs.packages }}
       dataset: ${{ inputs.dataset }}
+      evaluator_ref: ${{ inputs.evaluator_ref || 'main' }}
 
   evaluate:
     needs: [resolve, generate]
@@ -102,6 +107,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: neuroscales/brainhops-eval
+          ref: ${{ github.repository == 'neuroscales/brainhops-eval' && github.sha || inputs.evaluator_ref }}
           persist-credentials: false
       - name: Check out brainhops at the resolved immutable commit
         uses: actions/checkout@v4
