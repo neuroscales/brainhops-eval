@@ -11,7 +11,7 @@ From: python@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113
 %post
     set -eu
     apt-get update
-    apt-get install -y --no-install-recommends libgomp1 libstdc++6 ca-certificates
+    apt-get install -y --no-install-recommends libgomp1 libstdc++6 libquadmath0 ca-certificates
     rm -rf /var/lib/apt/lists/*
     python /opt/brainhops-eval/software/fsl/extract_runtime.py /opt/fsl
     python -m pip install --no-cache-dir -r /opt/brainhops-eval/requirements/fixtures.txt
