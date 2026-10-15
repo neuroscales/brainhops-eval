@@ -1,68 +1,63 @@
 # Validation notes
 
-The initial local evaluation used brainhops commit
-`04d278618652ec3bda4b3ec46d4278734ced6bf7`, SimpleITK 2.5.2, and the ANTs
-binaries from the digest-pinned 2.6.0 image. Full Python dependency versions
-are recorded in each generated report; they are not inferred from image tags.
+Evaluation applies native pull transforms directly to the objects returned by
+`brainhops.io.load`:
 
-| Local check | Result |
-| --- | --- |
-| Tooling tests | 11 passed |
-| SimpleITK synthetic comparisons | 26/26 passed; worst interior absolute error 0.000733 |
-| ANTs synthetic comparisons | 30/30 passed; worst interior absolute error 0.00184 |
-| Anatomical download-path comparisons | 22/22 passed; worst interior absolute error 0.000992 |
-| GitHub workflow syntax and expressions | actionlint 1.7.7 passed |
-
-The anatomical check predates the additional handedness case. The ANTs image
-tag is `v2.6.0`; the binaries report `2.6.0.dev1-gcff4f8b`, which is recorded
-verbatim in fixture provenance.
-
-## Public Python image application API
-
-The SimpleITK suite covers known and estimated transforms serialized as TFM
-and HDF5; native, flipped-handedness, downsampled, alternate-reference, integer
-intensity, and label inputs; and known-transform PNG/NPY cases. The direct
-Python path calls `source(pull).reslice(reference, ...)`, exercising the public
-image application API with the native pull map. The image call handles
-composition with the source geometry.
-
-Tests independently compare the native package's result with SciPy sampling
-through the known RAS voxel-to-voxel map, check landmark positions, check
-output geometry, reject changed fixture bytes, exercise failed-comparison
-reports, and verify dataset checksums and cache repair.
-
-## CLI direction discrepancy in the tested commit
-
-At the commit above, the CLI documentation describes `--transform` as a push
-mapping and says that a native pull transform should be inverted with `|inv`.
-However, `SingleScaleImage.__call__` itself inverts its argument before
-composing it with the input geometry. The documented invocation therefore
-applies the opposite mapping in this version.
-
-With the known-transform native-grid case, the documented CLI invocation had
-an interior maximum absolute error of about 612 intensity units. The same
-fixture passed through the public Python image application API with maximum
-absolute error below 0.001. The float32 downsampled case also failed in CLI
-mode, so integer output quantization does not explain the discrepancy.
-
-Reproduce against that commit with:
-
-```sh
-brainhops-eval evaluate --fixtures work/fixtures --output work/cli-report \
-  --interface cli --brainhops-ref 04d278618652ec3bda4b3ec46d4278734ced6bf7 \
-  --brainhops-sha 04d278618652ec3bda4b3ec46d4278734ced6bf7
+```python
+source = io.load(source_path)
+reference = io.load(reference_path)
+pull = io.load(transform_path)
+resliced = source(pull).reslice(reference, ...)
 ```
 
-The CLI evaluation follows the documented contract and fails visibly. It does
-not select a different inversion based on the tested version. CLI mode also
-preserves input storage dtypes, so integer quantization differences may remain
-after the direction contract is fixed. No brainhops code is modified here.
+No replacement images, dtype casts, array transposes, or geometry adapters are
+used. Earlier green evaluation runs reconstructed images and cast data to
+float32; their agreement results do not establish agreement for loaded images.
+Those workarounds have been removed.
 
-## Execution limits
+## Direct-loaded results
 
-Both SIF definitions were also built and run successfully on the GitHub-hosted
-runner in [CI run 38783017651](https://github.com/neuroscales/brainhops-eval/actions/runs/38783017651).
-The container generation and evaluation jobs passed for both packages. The
-workflow records SIF checksums and package inventories, and uploads diagnostic
-results even when comparisons fail. ARM runners are not supported by the
-initial digest pins.
+Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
+
+- SimpleITK synthetic fixtures: 9 pass, 16 fail numerical comparison, and
+  1 fails loading (NPY).
+- ANTs synthetic fixtures: 10 pass and 20 fail numerical comparison.
+- Integer NIfTI linear interpolation retains integer output and differs from
+  the float32 native reference by up to approximately 0.5 intensity units.
+  This exceeds the unchanged maximum-error and normalized-RMSE thresholds.
+- Float32 downsampled cases and nearest-neighbor label cases pass.
+- PNG passes without a geometry adapter, but brainhops warns that some axes
+  were matched by position because names, units, or orientations did not
+  distinguish them.
+- NPY fails in `io.load`: the loader attempts `NpyMatrixAffine`, which rejects
+  the image array's `(47, 63)` shape. No NumPy-loader fallback is substituted.
+
+The native reference computes in float32. These results expose an output-dtype
+policy difference; they do not by themselves establish that integer rounding
+is a brainhops bug. The evaluator neither loosens thresholds nor casts inputs
+to hide the difference. Evaluation CI is expected to fail until the tested
+library behavior or an explicitly agreed comparison policy changes.
+
+The tooling tests independently check native resampling against known RAS
+mappings, landmark positions, fixture integrity, dataset checksums, and report
+creation. They also verify that image application uses the same object that
+`io.load` returned. Reporting tests distinguish evaluator correctness from
+whether the selected brainhops version agrees with native references.
+
+## CLI convention
+
+The tested CLI documentation describes transforms as push maps and instructs
+users to invert native pull maps with `|inv`. The image application API accepts
+pull maps. The documented CLI invocation produced a much larger mapping error
+(approximately 612 intensity units in the known-transform native-grid case).
+CLI evaluation follows its documented invocation and reports failures without
+substituting a version-specific inversion. No brainhops code is changed here.
+
+## Container execution
+
+Both SIF definitions built and ran successfully in
+[CI run 38783017651](https://github.com/neuroscales/brainhops-eval/actions/runs/38783017651).
+The numerical passes from that historical run used the removed image wrappers
+and must not be cited as direct-loaded validation. The workflow records SIF
+checksums and package inventories, and uploads reports when comparisons fail.
+ARM runners are not supported by the initial digest pins.

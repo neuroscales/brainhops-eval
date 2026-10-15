@@ -139,15 +139,12 @@ The estimated registration is rigid, so its anatomical fit is deliberately
 imperfect; interoperability is checked against its actual estimated mapping.
 
 SimpleITK additionally probes native PNG reader defaults and the explicit
-`GetImageFromArray` path for NPY. Both use matching, asymmetric non-square
-images. The evaluation-side [geometry helper](src/brainhops_eval/geometry.py)
-attaches each measured package grid to brainhops model arrays without resampling
-or changing reader defaults. PNG pixels are loaded with brainhops; NPY arrays
-are loaded with NumPy and explicitly transposed from rows/columns to x/y.
-
-The helper takes origin, spacing, direction, and a destination coordinate
-system. This makes it a concrete prototype for a future brainhops helper.
-The current PNG/NPY cases use known transforms, not a raster registration run.
+`GetImageFromArray` reference path for NPY. Evaluation loads every source,
+reference, and transform with brainhops `io.load` and applies the transform
+directly to the returned image. It does not reconstruct images, cast their
+data, transpose their arrays, or attach replacement geometry. Unsupported
+loaders and incompatible model spaces are recorded as errors rather than
+worked around. Package geometry probes remain in the fixture provenance.
 
 ## Comparison semantics
 
@@ -159,11 +156,10 @@ source(native_pull).reslice(reference, ...)
 ```
 
 The image call accepts the pull map and handles geometry composition before
-reslicing onto the reference grid. Input **storage**
-dtypes are varied; both reference and Python evaluation compute in float32 to
-isolate interpolation from integer output quantization. The original readers
-still decode the integer files. Integer output-casting policy is not yet a
-separate acceptance test.
+reslicing onto the reference grid. The object returned by `io.load` is used
+unchanged. Native reference outputs compute in float32; brainhops chooses its
+output dtype through its normal API. Integer output quantization can therefore
+fail comparison, and is reported rather than hidden by an input cast.
 
 Interior agreement requires maximum absolute error ≤ 0.02 and normalized RMSE
 ≤ 2e-5. Labels require exact values within 1e-5 and no new labels. A native
@@ -176,7 +172,7 @@ are displayed in voxel axes, not falsely labelled as anatomical planes.
 The optional CLI path passes `transform|inv`, following the current CLI's
 documented push convention, and retains native input dtypes. It is a separate
 contract test and may expose CLI direction or integer-quantization differences.
-PNG/NPY continue to use the explicit Python geometry helper in either mode;
+PNG/NPY use direct application to `io.load` results in either mode;
 each result records the interface it actually exercised.
 No version-specific inversion is silently substituted. See
 [validation notes](docs/validation.md) for observed behavior.

@@ -63,16 +63,41 @@ def test_fixture_integrity_detects_tampering(fixtures, tmp_path):
         verify(copy, read_json(copy / "manifest.json"))
 
 
-def test_full_python_evaluation_and_portable_report(fixtures, tmp_path):
+def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypatch):
+    import brainhops.io as bio
+    from brainhops.datamodel.images import SingleScaleImage
+
+    loaded, applied = set(), []
+    original_load, original_call = bio.load, SingleScaleImage.__call__
+
+    def track_load(*args, **kwargs):
+        image = original_load(*args, **kwargs)
+        if isinstance(image, SingleScaleImage):
+            loaded.add(id(image))
+        return image
+
+    def track_call(image, transform):
+        # Applying to a replacement image would violate the evaluation contract.
+        applied.append(id(image))
+        assert id(image) in loaded
+        return original_call(image, transform)
+
+    monkeypatch.setattr(bio, "load", track_load)
+    monkeypatch.setattr(SingleScaleImage, "__call__", track_call)
     report = tmp_path / "report"
-    assert evaluate(fixtures, report, brainhops_ref="test-ref", brainhops_sha="test-sha")
+    passed = evaluate(fixtures, report, brainhops_ref="test-ref", brainhops_sha="test-sha")
     result = read_json(report / "results.json")
+    assert applied and all(identity in loaded for identity in applied)
+    assert passed == all(case["status"] == "pass" for case in result["cases"])
     assert len(result["cases"]) == 26
     assert result["brainhops_ref"] == "test-ref"
     assert result["brainhops_sha"] == "test-sha"
     assert "test-sha" in (report / "index.html").read_text()
     for case in result["cases"]:
-        assert (report / case["preview"]).is_file()
+        if case["status"] == "error":
+            assert case["error"]
+        else:
+            assert (report / case["preview"]).is_file()
 
 
 def test_bad_comparison_still_writes_report(fixtures, tmp_path):
@@ -80,10 +105,11 @@ def test_bad_comparison_still_writes_report(fixtures, tmp_path):
     copy = tmp_path / "fixtures"
     shutil.copytree(fixtures, copy)
     cases = read_json(copy / "cases.json")
-    cases["cases"] = [case for case in cases["cases"] if case["id"] == "npy"]
+    cases["cases"] = [case for case in cases["cases"] if case["id"] == "known-tfm-moving-downsampled"]
     write_json(copy / "cases.json", cases)
-    expected_path = copy / "cases/npy/expected.npy"
-    np.save(expected_path, np.load(expected_path) + 100)
+    expected_path = copy / cases["cases"][0]["expected"]
+    expected_image = nib.load(expected_path)
+    nib.save(nib.Nifti1Image(expected_image.get_fdata() + 100, expected_image.affine), expected_path)
     write_json(copy / "manifest.json", {"schema_version": 1, "files": inventory(copy)})
     report = tmp_path / "report"
     assert not evaluate(copy, report)

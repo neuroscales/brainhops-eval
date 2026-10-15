@@ -12,7 +12,6 @@ import nibabel as nib
 import numpy as np
 
 from .files import digest, read_json, relative_file, verify, write_json
-from .geometry import with_package_geometry
 from .report import montage, write_report
 
 
@@ -44,7 +43,6 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
     # Only this stage imports brainhops. Native fixtures are reusable across refs.
     import brainhops.io as bio
     from brainhops.backends import set_backend
-    from brainhops.datamodel.images import SingleScaleImage
     from brainhops.datamodel.transformations import Affine
 
     set_backend("numpy")
@@ -89,15 +87,9 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
                     process.check_returncode()
                 else:
-                    source = bio.images.load(src)
-                    reference = bio.images.load(ref)
-                    pull = bio.transformations.load(transform)
-                    # Match the native resampler's float32 computation while
-                    # retaining the geometry decoded by the brainhops reader.
-                    source = SingleScaleImage(
-                        data=np.asarray(source.data, dtype=np.float32),
-                        transformations=source.transformations,
-                    )
+                    source = bio.load(src)
+                    reference = bio.load(ref)
+                    pull = bio.load(transform)
                     resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
                     bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
@@ -119,25 +111,16 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     if not np.isin(actual, allowed).all():
                         raise ValueError("Nearest interpolation introduced a new label value")
             else:
-                pull = bio.transformations.load(transform)
-                arrays = []
-                for label, path in [("moving", src), ("reference", ref)]:
-                    if case["kind"] == "png":
-                        loaded = bio.images.load(path)
-                        data = np.asarray(loaded.data)
-                        record[f"native_{label}_geometry"] = np.asarray(loaded.transformation.to(Affine).matrix).tolist()
-                    else:
-                        # NPY stores rows,columns by this fixture's explicit policy.
-                        data = np.load(path, allow_pickle=False).T
-                    arrays.append(with_package_geometry(data, probes[case["kind"]][label],
-                                                        pull.output if label == "moving" else pull.input))
-                moving, reference = arrays
-                moving = SingleScaleImage(data=np.asarray(moving.data, dtype=np.float32),
-                                          transformations=moving.transformations)
-                actual = np.asarray(moving(pull).reslice(reference, degree=1, bound="constant").data)
+                pull = bio.load(transform)
+                source = bio.load(src)
+                reference = bio.load(ref)
+                if case["kind"] == "png":
+                    record["native_moving_geometry"] = np.asarray(source.transformation.to(Affine).matrix).tolist()
+                    record["native_reference_geometry"] = np.asarray(reference.transformation.to(Affine).matrix).tolist()
+                actual = np.asarray(source(pull).reslice(reference, degree=1, bound="constant").data)
                 reference_array = np.asarray(reference.data)
                 np.save(case_output / "brainhops.npy", actual)
-                record["geometry_policy"] = case["geometry_policy"]
+                record["geometry_policy"] = "unmodified io.load defaults"
             passed, metrics = compare(actual, expected, mask, atol=1e-5 if case["degree"] == 0 else 0.02)
             record.update(status="pass" if passed else "fail", metrics=metrics)
             montage(case_output / "comparison.png", reference_array, expected, actual)
