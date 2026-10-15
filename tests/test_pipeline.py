@@ -31,9 +31,9 @@ def test_generation_is_reproducible(inputs, tmp_path):
     assert inventory(inputs) == inventory(second)
 
 
-def test_known_transform_maps_independent_landmarks(inputs):
-    landmarks = read_json(inputs / "landmarks.json")
-    transform = sitk.ReadTransform(str(inputs / "known-pull.tfm"))
+def test_known_transform_maps_independent_landmarks(fixtures):
+    landmarks = read_json(fixtures / "inputs/landmarks.json")
+    transform = sitk.ReadTransform(str(fixtures / "transforms/known.tfm"))
     fixed = np.array(landmarks["fixed"]) * [-1, -1, 1]
     got = np.array([transform.TransformPoint(tuple(p)) for p in fixed])
     np.testing.assert_allclose(got, np.array(landmarks["moving"]) * [-1, -1, 1], atol=1e-10)

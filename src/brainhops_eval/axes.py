@@ -15,8 +15,8 @@ def raster_axis_check(image, path, package_geometry):
     else:
         with Image.open(path) as raster:
             storage = np.asarray(raster)
-    # SimpleITK reads these scalar fixtures as rows,columns in storage and
-    # x,y in its model. This is independent reference data, never an edit
+    # These fixtures declare rows,columns in storage and x,y model order.
+    # This is independent reference data, never an edit
     # or transpose of the image returned by brainhops.
     expected_data = storage.T
     actual_data = np.asarray(image.data)

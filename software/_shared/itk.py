@@ -52,6 +52,15 @@ def command(arguments, log):
     result.check_returncode()
 
 
+def affine_from_matrix(matrix):
+    matrix = np.asarray(matrix)
+    ndim = matrix.shape[0] - 1
+    transform = sitk.AffineTransform(ndim)
+    transform.SetMatrix(matrix[:ndim, :ndim].ravel().tolist())
+    transform.SetTranslation(matrix[:ndim, ndim].tolist())
+    return transform
+
+
 def build(inputs, output, *, backend, register, apply_image, include_rasters=False, container_image=None):
     inputs, output = Path(inputs).resolve(), Path(output).resolve()
     verify(inputs, read_json(inputs / "manifest.json"))
@@ -67,6 +76,8 @@ def build(inputs, output, *, backend, register, apply_image, include_rasters=Fal
     sitk.WriteTransform(estimated, str(registered_path))
 
     landmarks = read_json(inputs / "landmarks.json")
+    flip = np.diag([-1., -1., 1., 1.])
+    known = affine_from_matrix(flip @ np.linalg.inv(landmarks["push_moving_to_fixed_ras"]) @ flip)
     fixed_lps = np.array(landmarks["fixed"]) * [-1, -1, 1]
     moving_lps = np.array(landmarks["moving"]) * [-1, -1, 1]
     observed = np.array([estimated.TransformPoint(tuple(point)) for point in fixed_lps])
@@ -78,7 +89,7 @@ def build(inputs, output, *, backend, register, apply_image, include_rasters=Fal
 
     definitions = read_json(inputs / "inputs.json")["variants"]
     cases = []
-    for mode, transform in [("known", sitk.ReadTransform(str(inputs / "known-pull.tfm"))),
+    for mode, transform in [("known", known),
                             ("registered", estimated)]:
         formats = {"tfm": None, "h5": None}
         if mode == "registered":
@@ -117,7 +128,7 @@ def build(inputs, output, *, backend, register, apply_image, include_rasters=Fal
             src = read_image(inputs / f"moving.{extension}")
             ref = read_image(inputs / f"fixed.{extension}")
             probes[extension] = {"moving": geometry(src), "reference": geometry(ref)}
-            transform = sitk.ReadTransform(str(inputs / "raster-known-pull.tfm"))
+            transform = affine_from_matrix(read_json(inputs / "raster-transform.json")["pull_reference_to_moving_xy"])
             transform_path = transforms / f"raster-{extension}.tfm"
             sitk.WriteTransform(transform, str(transform_path))
             case_dir = output / "cases" / extension

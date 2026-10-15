@@ -55,18 +55,6 @@ def regrid(data, old_affine, shape, new_affine, degree=1):
     )
 
 
-def write_itk_affine(path, matrix):
-    """Write an explicit physical pull mapping, with centre zero."""
-    ndim = matrix.shape[0] - 1
-    parameters = list(matrix[:ndim, :ndim].ravel()) + list(matrix[:ndim, ndim])
-    Path(path).write_text(
-        "#Insight Transform File V1.0\n#Transform 0\n"
-        f"Transform: AffineTransform_double_{ndim}_{ndim}\n"
-        + "Parameters: " + " ".join(map(str, parameters)) + "\n"
-        + "FixedParameters: " + " ".join(["0"] * ndim) + "\n"
-    )
-
-
 def generate(output, source=None):
     output = Path(output)
     if output.exists() and any(output.iterdir()):
@@ -143,8 +131,6 @@ def generate(output, source=None):
     # Label maps share source geometry and use nearest interpolation.
     labels = ((moving > 250).astype(np.uint8) + (moving > 650).astype(np.uint8))
     save_nifti(output / "moving-labels.nii.gz", labels, moving_affine)
-    flip = np.diag([-1., -1., 1., 1.])
-    write_itk_affine(output / "known-pull.tfm", flip @ np.linalg.inv(push) @ flip)
     landmarks = np.array([[-9, 2, 0], [10, -3, 3], [-14, -12, 10], [7, 14, -9]], dtype=float) * (spacing / [1.2, 1.1, 1.5])
     pull = np.linalg.inv(push)
     write_json(output / "landmarks.json", {
@@ -173,13 +159,16 @@ def generate(output, source=None):
         np.save(output / f"{name}.npy", data, allow_pickle=False)
     raster_pull = np.eye(3)
     raster_pull[:2, 2] = [-3, 2]
-    write_itk_affine(output / "raster-known-pull.tfm", raster_pull)
+    write_json(output / "raster-transform.json", {
+        "pull_reference_to_moving_xy": raster_pull.tolist(),
+        "coordinate_system": "fixture model x/y", "unit": "pixel",
+    })
     write_json(output / "inputs.json", {
         "schema_version": 1, "source": provenance, "variants": variants,
         "raster_policy": {"storage_axes": ["y", "x"], "model_axes": ["x", "y"],
                           "pixel_centres": "integers", "origin": [0, 0],
                           "spacing": [1, 1], "direction": [[1, 0], [0, 1]],
-                          "note": "SimpleITK defaults; explicitly adopted for npy GetImageFromArray"},
+                          "note": "Intended fixture coordinates; software recipes must probe their reader defaults"},
     })
     manifest = {"schema_version": 1, "files": inventory(output)}
     write_json(output / "manifest.json", manifest)

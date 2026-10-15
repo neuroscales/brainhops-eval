@@ -89,6 +89,8 @@ Native registration, transform application, software dependencies, and container
 entrypoints belong in each software folder. They are not installed as part of
 `brainhops-eval`. The two current recipes reuse ITK bundle-writing utilities
 under `software/_shared`; a new recipe need not use those utilities or Python.
+Shared inputs describe known mappings as JSON; each recipe writes the native
+transform files it needs.
 The installed package has no software-specific generator command or dependency
 extra. Its CLI only fetches data, generates shared inputs, and evaluates bundles.
 

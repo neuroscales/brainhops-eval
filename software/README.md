@@ -16,7 +16,10 @@ apptainer run --bind "$PWD/work:/work" software.sif \
   --container-image /work/software.sif
 ```
 
-The inputs are the shared generator's image variants and provenance. Output
+The inputs are the shared generator's image variants, canonical mapping
+parameters (`landmarks.json` and `raster-transform.json`), and provenance.
+Each recipe serializes these known mappings into its native transform format.
+Output
 must be a new bundle directory. The recipe owns registration, native transform
 application, package defaults/probes, conversion checks, and its runtime setup.
 It must not import brainhops to produce reference results.
