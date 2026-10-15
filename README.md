@@ -168,6 +168,8 @@ are displayed in voxel axes, not falsely labelled as anatomical planes.
 The optional CLI path passes `transform|inv`, following the current CLI's
 documented push convention, and retains native input dtypes. It is a separate
 contract test and may expose CLI direction or integer-quantization differences.
+PNG/NPY continue to use the explicit Python geometry helper in either mode;
+each result records the interface it actually exercised.
 No version-specific inversion is silently substituted. See
 [validation notes](docs/validation.md) for observed behavior.
 

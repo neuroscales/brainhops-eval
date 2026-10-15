@@ -19,7 +19,8 @@ def montage(path, reference, expected, actual):
         def plane(array):
             return np.take(array, array.shape[axis] // 2, axis=axis).T if axis is not None else array.T
         ref, exp, got = map(plane, [reference, expected, actual])
-        tiles = ((np.indices(exp.shape).sum(axis=0) // 8) % 2).astype(bool)
+        indices = np.indices(exp.shape)
+        tiles = ((indices[0] // 8 + indices[1] // 8) % 2).astype(bool)
         check = np.where(tiles, exp, got)
         for column, (label, array) in enumerate([
             ("reference", ref), ("package", exp), ("brainhops", got),
@@ -51,9 +52,9 @@ def write_report(output, result):
         'pre{white-space:pre-wrap;overflow-wrap:anywhere}section{border-top:1px solid #ccc}</style>'
         '<h1>brainhops evaluation</h1>'
         f'<p>Requested ref: {esc(result["brainhops_ref"])}; resolved commit: {esc(result["brainhops_sha"])}</p>'
-        f'<p>Version: {esc(result["brainhops_version"])}; package: {esc(result["backend"])}. '
+        f'<p>Version: {esc(result["brainhops_version"])}; package: {esc(result["backend"])}; interface: {esc(result["interface"])}. '
         'Slices use reference voxel axes; they are not anatomical orientation labels. '
-        'Registration quality is recorded separately in registration.json. '
+        'Registration quality is recorded separately in <a href="registration.json">registration.json</a>. '
         'Boundary differences are reported separately from the interior pass criteria.</p>'
         '<p><a href="results.json">Machine-readable results and provenance</a></p>'
         + "".join(sections) + "</html>"

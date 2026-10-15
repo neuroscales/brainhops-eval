@@ -60,10 +60,14 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
               "brainhops_version": importlib.metadata.version("brainhops"),
               "fixture_manifest_sha256": digest(fixtures / "manifest.json"),
               "backend": manifest["backend"], "interface": interface, "python": platform.python_version(),
+              "source": read_json(fixtures / "inputs/inputs.json")["source"],
+              "transform_convention": manifest["transform_convention"],
+              "geometry_probes": probes,
               "packages": {dist.metadata["Name"]: dist.version for dist in importlib.metadata.distributions()},
               "registration": read_json(fixtures / "registration.json"), "cases": []}
     for case in manifest["cases"]:
-        record = {"id": case["id"], "status": "error"}
+        record = {"id": case["id"], "status": "error", "transform": case["transform"],
+                  "interface": interface if case["kind"] == "nifti" else "python"}
         case_output = output / case["id"]
         case_output.mkdir()
         try:
@@ -95,6 +99,13 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                     bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
                 reference = nib.load(ref)
+                source_storage = nib.load(src)
+                record["input"] = {"shape": list(source_storage.shape),
+                                   "dtype": str(source_storage.get_data_dtype()),
+                                   "affine_ras": source_storage.affine.tolist(),
+                                   "axcodes": list(nib.aff2axcodes(source_storage.affine))}
+                record["reference"] = {"shape": list(reference.shape),
+                                       "affine_ras": reference.affine.tolist()}
                 actual = image.get_fdata()
                 reference_array = reference.get_fdata()
                 if image.shape != reference.shape or not np.allclose(image.affine, reference.affine, atol=1e-4, rtol=1e-6):
@@ -133,6 +144,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
         result["cases"].append(record)
         print(f"{record['status']:5} {record['id']}", flush=True)
     result["passed"] = bool(result["cases"]) and all(case["status"] == "pass" for case in result["cases"])
+    write_json(output / "registration.json", result["registration"])
     write_json(output / "results.json", result)
     write_report(output, result)
     return result["passed"]
