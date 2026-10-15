@@ -34,7 +34,8 @@ The current evaluator consumes:
 - `cases.json`: schema version 1, backend name, transform convention, and cases
   with `id`, `kind`, `degree`, `moving`, `reference`, `transform`, `expected`,
   and `mask`. Paths are relative to the bundle. Current image kinds are
-  `nifti`, `png`, and `npy`.
+  `nifti` and `png`. NPY is used only for expected arrays and masks, not
+  as an image input to brainhops.
 - Native transform files, expected resampled images, and boolean interior masks.
 - `geometry-probes.json`: package input/reference geometry for raster cases;
   an empty object if no raster cases are generated.

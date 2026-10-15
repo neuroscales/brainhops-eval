@@ -19,19 +19,20 @@ Those workarounds have been removed.
 
 Against brainhops commit `04d278618652ec3bda4b3ec46d4278734ced6bf7`:
 
-- SimpleITK synthetic fixtures: 9 pass, 16 fail numerical comparison, and
-  1 fails image-only loading (NPY).
+- SimpleITK synthetic fixtures: 9 pass and 16 fail numerical comparison.
+  The unsupported NPY image case has been removed.
 - ANTs synthetic fixtures: 10 pass and 20 fail numerical comparison.
-- Integer NIfTI linear interpolation retains integer output and differs from
-  the float32 native reference by up to approximately 0.5 intensity units.
+- Integer NIfTI linear interpolation computes in float, then rounds/clips
+  and casts back to the input dtype before returning. That quantized output
+  differs from the float32 native reference by up to approximately 0.5 units.
   This exceeds the unchanged maximum-error and normalized-RMSE thresholds.
 - Float32 downsampled cases and nearest-neighbor label cases pass.
 - PNG passes without a geometry adapter, but brainhops warns that some axes
   were matched by position because names, units, or orientations did not
   distinguish them.
-- NPY is explicitly dispatched through `io.images.load`, avoiding matrix
-  ambiguity. The tested commit has no registered image parser recognizing
-  this file, so loading still fails. No NumPy-loader fallback is substituted.
+- NPY has no implemented image reader in the tested commit, so it is excluded
+  from active image compatibility cases. NPY serialization for expected arrays
+  and masks does not exercise brainhops image loading.
 
 The native reference computes in float32. These results expose an output-dtype
 policy difference; they do not by themselves establish that integer rounding
@@ -44,6 +45,27 @@ mappings, landmark positions, fixture integrity, dataset checksums, and report
 creation. They also verify that image application uses the same object that
 `io.images.load` returned. Reporting tests distinguish evaluator correctness from
 whether the selected brainhops version agrees with native references.
+
+## Where integer rounding occurs
+
+In `datamodel/_transformations/compute/separable.py`, the reslicer saves the
+input dtype, promotes non-floating input with `data.astype(float)`, and performs
+its separable steps. Before returning, it rounds integer results half away from
+zero, clips to the original dtype range, and casts back. The general pull path
+also allocates its output with the input dtype in `_core/bsplines.py`.
+
+This happens before image saving. A direct loaded-image test on a ramp with
+values 0, 3, 6, sampled half a voxel along x, gives:
+
+| Loaded input dtype | In-memory result dtype | Result samples |
+| --- | --- | --- |
+| int16 | int16 | 2, 5 |
+| float32 | float32 | 1.5, 4.5 |
+
+Those are separate on-disk inputs, both loaded and resliced directly without
+replacement brainhops objects. The fractional values are lost at output
+conversion, not through poor interpolation precision. Current raw comparison
+failures remain visible until an output-dtype comparison policy is agreed.
 
 ## Axis interpretation
 

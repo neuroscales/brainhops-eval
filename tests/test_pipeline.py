@@ -10,6 +10,7 @@ from brainhops_eval.fixtures import coordinates, generate
 
 
 def test_deliberately_different_geometry_and_storage(inputs):
+    assert not list(inputs.glob("*.npy"))
     fixed, moving = [nib.load(inputs / name) for name in ("fixed.nii.gz", "moving.nii.gz")]
     assert nib.aff2axcodes(fixed.affine) == ("R", "A", "S")
     assert nib.aff2axcodes(moving.affine) == ("S", "L", "P")
@@ -58,7 +59,7 @@ def test_fixture_integrity_detects_tampering(fixtures, tmp_path):
     import shutil
     shutil.copytree(fixtures, tmp_path / "fixtures")
     copy = tmp_path / "fixtures"
-    (copy / "inputs/moving.npy").write_bytes(b"modified")
+    (copy / "inputs/moving.png").write_bytes(b"modified")
     with pytest.raises(ValueError, match="Checksum mismatch"):
         verify(copy, read_json(copy / "manifest.json"))
 
@@ -89,15 +90,14 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     result = read_json(report / "results.json")
     assert applied and all(identity in loaded for identity in applied)
     assert passed == all(case["status"] == "pass" for case in result["cases"])
-    assert len(result["cases"]) == 26
+    assert len(result["cases"]) == 25
+    assert not any(case["id"] == "npy" for case in result["cases"])
     assert result["brainhops_ref"] == "test-ref"
     assert result["brainhops_sha"] == "test-sha"
     assert "test-sha" in (report / "index.html").read_text()
     png = next(case for case in result["cases"] if case["id"] == "png")
     assert set(png["axis_interpretation"]) == {"moving", "reference"}
     assert "warnings" in png
-    npy = next(case for case in result["cases"] if case["id"] == "npy")
-    assert "NpyMatrixAffine" not in npy.get("error", "")
     for case in result["cases"]:
         if case["status"] == "error":
             assert case["error"]

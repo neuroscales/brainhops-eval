@@ -172,16 +172,17 @@ The known affine includes rotation, translation, nonuniform scaling, and shear.
 The estimated registration is rigid, so its anatomical fit is deliberately
 imperfect; interoperability is checked against its actual estimated mapping.
 
-SimpleITK additionally probes native PNG reader defaults and the explicit
-`GetImageFromArray` reference path for NPY. Evaluation loads sources and references with `io.images.load` and transforms
-with `io.load`, then applies the transform
-directly to the returned image. It does not reconstruct images, cast their
-data, transpose their arrays, or attach replacement geometry. Unsupported
-loaders and incompatible model spaces are recorded as errors rather than
-worked around. Package geometry probes remain in the fixture provenance. Raster axis checks
-compare the loaded shape, pixel order, and numeric voxel-to-model map against
-those probes. Axis names, units, orientations, and bridging warnings are
-recorded in JSON and HTML. No anatomical orientation is inferred when absent.
+SimpleITK additionally probes native PNG reader defaults with asymmetric,
+non-square images. NPY is not an active image-format case because brainhops has
+no NPY image reader. `.npy` files in bundles hold expected arrays and masks;
+they are read by the evaluator, not passed to brainhops as images.
+
+Evaluation loads sources and references with `io.images.load` and transforms
+with `io.load`, then applies the transform directly to the returned image.
+It does not reconstruct images, cast their data, transpose their arrays, or
+attach replacement geometry. Raster axis checks compare the loaded shape,
+pixel order, and numeric voxel-to-model map against the package probes. Axis
+metadata and bridge warnings are recorded in JSON and HTML.
 
 ## Comparison semantics
 
@@ -195,8 +196,11 @@ source(native_pull).reslice(reference, ...)
 The image call accepts the pull map and handles geometry composition before
 reslicing onto the reference grid. The object returned by `io.images.load` is used
 unchanged. Native reference outputs compute in float32; brainhops chooses its
-output dtype through its normal API. Integer output quantization can therefore
-fail comparison, and is reported rather than hidden by an input cast.
+output dtype through its normal API. In the tested commit, integer inputs are promoted to float during separable
+resampling, then rounded/clipped and cast back to their original dtype before
+return. Comparison with our float32 references can therefore fail due to output
+quantization, not interpolation arithmetic. Reports record the in-memory and
+reference output dtypes. We do not cast loaded inputs or relax tolerances.
 
 Interior agreement requires maximum absolute error ≤ 0.02 and normalized RMSE
 ≤ 2e-5. Labels require exact values within 1e-5 and no new labels. A native
@@ -209,7 +213,7 @@ are displayed in voxel axes, not falsely labelled as anatomical planes.
 The optional CLI path passes `transform|inv`, following the current CLI's
 documented push convention, and retains native input dtypes. It is a separate
 contract test and may expose CLI direction or integer-quantization differences.
-PNG/NPY use direct application to `io.images.load` results in either mode;
+PNG uses direct application to `io.images.load` results in either mode;
 each result records the interface it actually exercised.
 No version-specific inversion is silently substituted. See
 [validation notes](docs/validation.md) for observed behavior.

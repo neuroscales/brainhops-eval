@@ -10,11 +10,8 @@ def raster_axis_check(image, path, package_geometry):
     from brainhops.datamodel.transformations import Affine
 
     path = Path(path)
-    if path.suffix == ".npy":
-        storage = np.load(path, allow_pickle=False)
-    else:
-        with Image.open(path) as raster:
-            storage = np.asarray(raster)
+    with Image.open(path) as raster:
+        storage = np.asarray(raster)
     # These fixtures declare rows,columns in storage and x,y model order.
     # This is independent reference data, never an edit
     # or transpose of the image returned by brainhops.

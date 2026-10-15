@@ -2,7 +2,7 @@
 
 This folder owns SimpleITK registration, resampling, dependencies, and the SIF
 entrypoint. It generates ITK TFM/HDF5 transforms, NIfTI reference outputs, and
-PNG/NPY reader-default probes. Shared ITK bundle bookkeeping is in `../_shared`.
+PNG reader-default probes. NPY is not tested as an image format. Shared ITK bundle bookkeeping is in `../_shared`.
 
 From the repository root, with shared tooling installed:
 

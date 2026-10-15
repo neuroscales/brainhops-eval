@@ -147,7 +147,7 @@ def generate(output, source=None):
         {"id": "uint8", "moving": "moving-uint8.nii.gz", "reference": "fixed.nii.gz", "degree": 1},
         {"id": "labels", "moving": "moving-labels.nii.gz", "reference": "fixed.nii.gz", "degree": 0},
     ]
-    # Native PNG and NPY use the same non-square row/column array. No DPI.
+    # Native PNG uses a non-square row/column array, without DPI.
     yy, xx = np.indices((47, 63), dtype=float)
 
     def raster(x, y):
@@ -156,7 +156,6 @@ def generate(output, source=None):
 
     for name, data in [("fixed", raster(xx, yy)), ("moving", raster(xx + 3, yy - 2))]:
         Image.fromarray(data).save(output / f"{name}.png")
-        np.save(output / f"{name}.npy", data, allow_pickle=False)
     raster_pull = np.eye(3)
     raster_pull[:2, 2] = [-3, 2]
     write_json(output / "raster-transform.json", {

@@ -16,8 +16,6 @@ from brainhops_eval.files import digest, inventory, read_json, verify, write_jso
 
 def read_image(path):
     path = Path(path)
-    if path.suffix == ".npy":
-        return sitk.Cast(sitk.GetImageFromArray(np.load(path, allow_pickle=False)), sitk.sitkFloat32)
     return sitk.ReadImage(str(path), sitk.sitkFloat32)
 
 
@@ -124,7 +122,7 @@ def build(inputs, output, *, backend, register, apply_image, include_rasters=Fal
     # A recipe opts into raster probes only when it owns that reader path.
     probes = {}
     if include_rasters:
-        for extension in ("png", "npy"):
+        for extension in ("png",):
             src = read_image(inputs / f"moving.{extension}")
             ref = read_image(inputs / f"fixed.{extension}")
             probes[extension] = {"moving": geometry(src), "reference": geometry(ref)}

@@ -74,7 +74,10 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
         case_output.mkdir()
         try:
             src, ref, transform = [relative_file(fixtures, case[key]) for key in ("moving", "reference", "transform")]
-            expected = load_array(relative_file(fixtures, case["expected"]))
+            expected_path = relative_file(fixtures, case["expected"])
+            expected = load_array(expected_path)
+            record["reference_output_dtype"] = str(expected.dtype if expected_path.suffix == ".npy"
+                                                   else nib.load(expected_path).get_data_dtype())
             mask = np.load(relative_file(fixtures, case["mask"]), allow_pickle=False).astype(bool)
             if case["kind"] == "nifti":
                 actual_path = case_output / "brainhops.nii.gz"
@@ -95,6 +98,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
                         warnings.simplefilter("always")
                         resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
                     record["warnings"] = [str(warning.message) for warning in caught]
+                    record["in_memory_output_dtype"] = str(resliced.data.dtype)
                     bio.save(resliced, actual_path)
                 image = nib.load(actual_path)
                 reference = nib.load(ref)
