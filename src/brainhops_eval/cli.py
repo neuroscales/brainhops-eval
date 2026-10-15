@@ -13,11 +13,6 @@ def main():
     generate = commands.add_parser("generate", help="Generate image and geometry variants")
     generate.add_argument("--output", required=True)
     generate.add_argument("--source", help="Optional downloaded 3D anatomical NIfTI")
-    reference = commands.add_parser("reference", help="Register and generate package-native expectations")
-    reference.add_argument("--inputs", required=True)
-    reference.add_argument("--output", required=True)
-    reference.add_argument("--backend", choices=["simpleitk", "ants"], default="simpleitk")
-    reference.add_argument("--container-image", help="Record the generating SIF checksum")
     evaluate = commands.add_parser("evaluate", help="Compare the installed brainhops with native expectations")
     evaluate.add_argument("--fixtures", required=True)
     evaluate.add_argument("--output", required=True)
@@ -32,9 +27,6 @@ def main():
     elif command == "generate":
         from .fixtures import generate
         generate(**args)
-    elif command == "reference":
-        from .adapters.simpleitk import build
-        build(**args)
     else:
         from .evaluate import evaluate
         return 0 if evaluate(**args) else 1

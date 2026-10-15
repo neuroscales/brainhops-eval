@@ -1,14 +1,17 @@
-"""Reference runner; requires SimpleITK, never brainhops."""
+"""Native ITK fixture utilities shared by recipes, outside the installed evaluator.
 
+Other software may use its own runtime and emit the same bundle contract.
+"""
+
+import argparse
 import shutil
 import subprocess
 from pathlib import Path
 
-import nibabel as nib
 import numpy as np
 import SimpleITK as sitk
 
-from ..files import digest, inventory, read_json, verify, write_json
+from brainhops_eval.files import digest, inventory, read_json, verify, write_json
 
 
 def read_image(path):
@@ -26,37 +29,6 @@ def model_array(image):
 def geometry(image):
     return {"size": list(image.GetSize()), "spacing": list(image.GetSpacing()),
             "origin": list(image.GetOrigin()), "direction": list(image.GetDirection())}
-
-
-def register(fixed, moving):
-    initial = sitk.CenteredTransformInitializer(
-        fixed, moving, sitk.Euler3DTransform(),
-        sitk.CenteredTransformInitializerFilter.GEOMETRY,
-    )
-    method = sitk.ImageRegistrationMethod()
-    method.SetMetricAsMeanSquares()
-    method.SetMetricSamplingStrategy(method.NONE)
-    method.SetInterpolator(sitk.sitkLinear)
-    method.SetOptimizerAsRegularStepGradientDescent(
-        learningRate=1, minStep=0.001, numberOfIterations=120,
-        gradientMagnitudeTolerance=1e-6,
-    )
-    method.SetOptimizerScalesFromPhysicalShift()
-    method.SetShrinkFactorsPerLevel([2, 1])
-    method.SetSmoothingSigmasPerLevel([1, 0])
-    method.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
-    method.SetInitialTransform(initial, inPlace=True)
-    method.Execute(fixed, moving)
-    # Flatten rigid output into an affine to exercise broad file interoperability.
-    affine = sitk.AffineTransform(3)
-    affine.SetCenter(initial.GetCenter())
-    affine.SetMatrix(initial.GetMatrix())
-    affine.SetTranslation(initial.GetTranslation())
-    return affine, {"metric": method.GetMetricValue(),
-                    "stop_condition": method.GetOptimizerStopConditionDescription(),
-                    "optimizer": "RegularStepGradientDescent", "iterations": 120,
-                    "metric_name": "MeanSquares", "shrink_factors": [2, 1],
-                    "smoothing_sigmas_mm": [1, 0], "sampling": "all voxels"}
 
 
 def valid_mask(moving, reference, transform, degree):
@@ -80,7 +52,7 @@ def command(arguments, log):
     result.check_returncode()
 
 
-def build(inputs, output, backend="simpleitk", container_image=None):
+def build(inputs, output, *, backend, register, apply_image, include_rasters=False, container_image=None):
     inputs, output = Path(inputs).resolve(), Path(output).resolve()
     verify(inputs, read_json(inputs / "manifest.json"))
     if output.exists() and any(output.iterdir()):
@@ -90,33 +62,9 @@ def build(inputs, output, backend="simpleitk", container_image=None):
     transforms = output / "transforms"
     transforms.mkdir()
     sitk.ProcessObject.SetGlobalDefaultNumberOfThreads(1)
-    fixed = read_image(inputs / "fixed.nii.gz")
-    moving = read_image(inputs / "moving.nii.gz")
     registered_path = transforms / "registered.tfm"
-    if backend == "simpleitk":
-        estimated, registration = register(fixed, moving)
-        sitk.WriteTransform(estimated, str(registered_path))
-    elif backend == "ants":
-        prefix = str(transforms / "ants-")
-        # Fixed seed and one thread are also set in the container environment.
-        command([
-            "antsRegistration", "--dimensionality", "3", "--float", "1",
-            "--output", prefix, "--interpolation", "Linear",
-            "--initial-moving-transform", f"[{inputs / 'fixed.nii.gz'},{inputs / 'moving.nii.gz'},0]",
-            "--transform", "Rigid[0.1]",
-            "--metric", f"MeanSquares[{inputs / 'fixed.nii.gz'},{inputs / 'moving.nii.gz'},1,0]",
-            "--convergence", "[120x60,1e-6,10]",
-            "--shrink-factors", "2x1", "--smoothing-sigmas", "1x0mm",
-            "--random-seed", "1729",
-        ], output / "commands.log")
-        estimated = sitk.ReadTransform(prefix + "0GenericAffine.mat")
-        sitk.WriteTransform(estimated, str(registered_path))
-        registration = {"native_transform": "transforms/ants-0GenericAffine.mat",
-                        "commands": "commands.log", "seed": 1729}
-        version = subprocess.run(["antsRegistration", "--version"], capture_output=True, text=True, check=True)
-        registration["version"] = version.stdout.strip()
-    else:
-        raise ValueError(f"Unknown backend: {backend}")
+    estimated, registration, native_formats = register(inputs, transforms, output)
+    sitk.WriteTransform(estimated, str(registered_path))
 
     landmarks = read_json(inputs / "landmarks.json")
     fixed_lps = np.array(landmarks["fixed"]) * [-1, -1, 1]
@@ -132,13 +80,13 @@ def build(inputs, output, backend="simpleitk", container_image=None):
     cases = []
     for mode, transform in [("known", sitk.ReadTransform(str(inputs / "known-pull.tfm"))),
                             ("registered", estimated)]:
-        formats = ["tfm", "h5"]
-        if backend == "ants" and mode == "registered":
-            formats.append("mat")
-        for extension in formats:
+        formats = {"tfm": None, "h5": None}
+        if mode == "registered":
+            formats.update(native_formats)
+        for extension, native_file in formats.items():
             transform_path = transforms / f"{mode}.{extension}"
-            if extension == "mat":
-                shutil.copyfile(transforms / "ants-0GenericAffine.mat", transform_path)
+            if native_file is not None:
+                shutil.copyfile(native_file, transform_path)
             else:
                 sitk.WriteTransform(transform, str(transform_path))
             converted = sitk.ReadTransform(str(transform_path))
@@ -154,25 +102,17 @@ def build(inputs, output, backend="simpleitk", container_image=None):
                 case_dir = output / "cases" / case["id"]
                 case_dir.mkdir(parents=True)
                 src, ref = read_image(output / case["moving"]), read_image(output / case["reference"])
-                if backend == "ants":
-                    command(["antsApplyTransforms", "-d", "3", "--float", "1",
-                             "-i", str(output / case["moving"]), "-r", str(output / case["reference"]),
-                             "-t", str(transform_path), "-n", "NearestNeighbor" if not case["degree"] else "Linear",
-                             "-o", str(case_dir / "expected.nii.gz")], output / "commands.log")
-                else:
-                    result = sitk.Resample(src, ref, converted,
-                                           sitk.sitkLinear if case["degree"] else sitk.sitkNearestNeighbor,
-                                           0, sitk.sitkFloat32)
-                    sitk.WriteImage(result, str(case_dir / "expected.nii.gz"))
+                apply_image(output / case["moving"], output / case["reference"],
+                            transform_path, case["degree"], case_dir / "expected.nii.gz",
+                            output / "commands.log")
                 np.save(case_dir / "interior.npy", model_array(valid_mask(src, ref, converted, case["degree"])).astype(bool))
                 case["expected"] = str((case_dir / "expected.nii.gz").relative_to(output))
                 case["mask"] = str((case_dir / "interior.npy").relative_to(output))
                 cases.append(case)
 
-    # PNG/NPY default-space cases use the SimpleITK reader or GetImageFromArray.
-    # ANTs is deliberately not credited with these SimpleITK-only cases.
+    # A recipe opts into raster probes only when it owns that reader path.
     probes = {}
-    if backend == "simpleitk":
+    if include_rasters:
         for extension in ("png", "npy"):
             src = read_image(inputs / f"moving.{extension}")
             ref = read_image(inputs / f"fixed.{extension}")
@@ -198,3 +138,11 @@ def build(inputs, output, backend="simpleitk", container_image=None):
     write_json(output / "manifest.json", {"schema_version": 1, "files": inventory(output)})
     return output
 
+
+def main(generate):
+    """Common flags for these ITK-based recipes, not a software registry."""
+    parser = argparse.ArgumentParser(description=generate.__doc__)
+    parser.add_argument("--inputs", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--container-image", help="Record the generating SIF checksum")
+    generate(**vars(parser.parse_args()))

@@ -10,6 +10,6 @@ def inputs(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def fixtures(inputs, tmp_path_factory):
-    from brainhops_eval.adapters.simpleitk import build
-    return build(inputs, tmp_path_factory.mktemp("native"))
+    from software.simpleitk.generate import generate
+    return generate(inputs, tmp_path_factory.mktemp("native"))
 

@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       packages:
-        description: Reference package(s)
-        type: choice
-        options: [simpleitk, ants, all]
+        description: Software folder names, comma-separated, or all
+        type: string
         default: simpleitk
       dataset:
         description: Image source
@@ -34,18 +33,23 @@ jobs:
     outputs:
       packages: ${{ steps.configure.outputs.packages }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: neuroscales/brainhops-eval
+          ref: ${{ github.repository == 'neuroscales/brainhops-eval' && github.sha || inputs.evaluator_ref }}
+          persist-credentials: false
       - id: configure
         env:
           PACKAGES: ${{ inputs.packages }}
           DATASET: ${{ inputs.dataset }}
         run: |
           python - <<'PY'
-          import json, os
+          import json, os, subprocess, sys
           packages = os.environ['PACKAGES']
-          assert packages in ('simpleitk', 'ants', 'all'), 'Unknown package selection'
+          selected = json.loads(subprocess.check_output([sys.executable, 'scripts/select_software.py', packages], text=True))
           assert os.environ['DATASET'] in ('phantom', 'nibabel-anatomical'), 'Unknown dataset'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
-              stream.write('packages=' + json.dumps(['simpleitk', 'ants'] if packages == 'all' else [packages]) + '\n')
+              stream.write('packages=' + json.dumps(selected) + '\n')
           PY
 
   generate:
@@ -80,12 +84,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: work/${{ matrix.backend }}.sif
-          key: sif-amd64-${{ matrix.backend }}-${{ hashFiles('containers/**', 'requirements/**', 'src/**', 'pyproject.toml') }}
+          key: sif-amd64-${{ matrix.backend }}-${{ hashFiles(format('software/{0}/**', matrix.backend), 'software/_shared/**', 'requirements/**', 'src/**', 'pyproject.toml') }}
       - name: Build package container
         if: steps.sif.outputs.cache-hit != 'true'
         env:
           BACKEND: ${{ matrix.backend }}
-        run: sudo apptainer build "work/$BACKEND.sif" "containers/$BACKEND.def"
+        run: sudo apptainer build "work/$BACKEND.sif" "software/$BACKEND/container.def"
       - name: Generate inputs
         env:
           DATASET: ${{ inputs.dataset }}
@@ -100,9 +104,8 @@ jobs:
         env:
           BACKEND: ${{ matrix.backend }}
         run: |
-          apptainer exec --cleanenv --containall --pwd /work \
+          apptainer run --cleanenv --containall --pwd /work \
             --bind "$PWD/work:/work" "work/$BACKEND.sif" \
-            brainhops-eval reference --backend "$BACKEND" \
             --inputs /work/inputs --output /work/fixtures \
             --container-image "/work/$BACKEND.sif"
       - name: Save container provenance

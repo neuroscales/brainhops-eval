@@ -17,7 +17,7 @@ Evaluate brainhops → Run workflow**. Set:
 | Input | Meaning |
 | --- | --- |
 | `brainhops_ref` | Commit SHA, tag, or branch in `neuroscales/brainhops` |
-| `packages` | `simpleitk`, `ants`, or `all` |
+| `packages` | Software folder names (comma-separated), or `all` |
 | `dataset` | `phantom` or the pinned `nibabel-anatomical` example |
 | `interface` | `python` for the public image application API; `cli` for documented CLI behavior |
 | `fixtures_run_id` | Optional previous run ID whose native fixtures should be reused |
@@ -66,6 +66,36 @@ the evaluation workflow's own commit automatically.
 Pull-request CI runs the tooling tests and the complete container-based Python
 evaluation against brainhops `main`, using both reference packages.
 
+## Repository layout
+
+```text
+src/brainhops_eval/        # Shared datasets, augmentations, evaluation, reports
+software/
+  simpleitk/
+    container.def
+    generate.py
+    requirements.txt
+    README.md
+  ants/
+    container.def
+    generate.py
+    requirements.txt
+    README.md
+  _shared/itk.py          # Optional native ITK utilities, outside the package
+scripts/select_software.py
+```
+
+Native registration, transform application, software dependencies, and container
+entrypoints belong in each software folder. They are not installed as part of
+`brainhops-eval`. The two current recipes reuse ITK bundle-writing utilities
+under `software/_shared`; a new recipe need not use those utilities or Python.
+The installed package has no software-specific generator command or dependency
+extra. Its CLI only fetches data, generates shared inputs, and evaluates bundles.
+
+See [the software contract](software/README.md) to add a recipe. Actions discovers
+folders containing `container.def`; selecting `all` includes new folders without
+changing a Python registry or a hard-coded workflow matrix.
+
 ## Run locally
 
 Python 3.11+ is required. The selected brainhops version is installed separately:
@@ -73,11 +103,11 @@ Python 3.11+ is required. The selected brainhops version is installed separately
 ```sh
 python -m venv .venv
 . .venv/bin/activate
-pip install -e '.[simpleitk,test]'
+pip install -e '.[test]' -r software/simpleitk/requirements.txt
 pip install 'brainhops[nifti,pillow,itk] @ git+https://github.com/neuroscales/brainhops.git@YOUR_REF'
 
 brainhops-eval generate --output work/inputs
-brainhops-eval reference --inputs work/inputs --output work/fixtures
+python -m software.simpleitk.generate --inputs work/inputs --output work/fixtures
 brainhops-eval evaluate --fixtures work/fixtures --output work/report \
   --brainhops-ref YOUR_REF --brainhops-sha RESOLVED_SHA
 pytest -q
@@ -97,19 +127,21 @@ See [dataset instructions](datasets/README.md) for OpenNeuro and other sources.
 
 ## Containers
 
-Apptainer and SingularityCE definition files live in `containers/`. Build from
+Apptainer and SingularityCE definition files live with their generators in
+`software/<name>/container.def`. Build from
 the repository root so `%files` can copy the tooling:
 
 ```sh
-sudo apptainer build work/simpleitk.sif containers/simpleitk.def
-apptainer exec --cleanenv --containall --pwd /work \
+sudo apptainer build work/simpleitk.sif software/simpleitk/container.def
+apptainer run --cleanenv --containall --pwd /work \
   --bind "$PWD/work:/work" work/simpleitk.sif \
-  brainhops-eval reference --backend simpleitk \
   --inputs /work/inputs --output /work/fixtures \
   --container-image /work/simpleitk.sif
 ```
 
-Use `containers/ants.def` and `--backend ants` for ANTs. Both definitions pin
+Use `software/ants/container.def` for ANTs; its runscript selects its generator.
+For a local run with ANTs binaries on PATH, use `python -m software.ants.generate`
+with the same input/output flags. Both definitions pin
 linux/amd64 base manifests by digest. Python numerical dependencies and
 SimpleITK are pinned; build tools, transitive dependencies, and ANTs runtime
 Debian packages are not fully locked. SIF bytes and the full installed package
@@ -182,9 +214,9 @@ No version-specific inversion is silently substituted. See
 
 ## Extending the suite
 
-Next additions should include FSL and NiftyReg adapters, nonlinear fields and
+Next additions should include FSL and NiftyReg recipes, nonlinear fields and
 their domains, chained transforms, explicit image-format conversions, qform/
-sform precedence and scaling, and JPEG compression cases. A package adapter
+sform precedence and scaling, and JPEG compression cases. A software recipe
 must retain its original registration inputs, native transforms, commands,
 version and defaults; generate native expected outputs; and declare transform
 direction and coordinate systems. Conversions tied to the original grids must
