@@ -1,0 +1,31 @@
+Bootstrap: docker
+From: python@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113a07f
+
+%files
+    pyproject.toml /opt/brainhops-eval/pyproject.toml
+    src /opt/brainhops-eval/src
+    requirements /opt/brainhops-eval/requirements
+    software/_shared /opt/brainhops-eval/software/_shared
+    software/elastix /opt/brainhops-eval/software/elastix
+
+%post
+    set -eu
+    apt-get update
+    apt-get install -y --no-install-recommends elastix=5.0.1-4
+    rm -rf /var/lib/apt/lists/*
+    python -m pip install --no-cache-dir -r /opt/brainhops-eval/requirements/fixtures.txt
+    python -m pip install --no-cache-dir --no-deps /opt/brainhops-eval
+    python -m pip freeze > /opt/fixture-environment.txt
+
+%environment
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+
+%runscript
+    cd /opt/brainhops-eval
+    exec python -m software.elastix.generate "$@"
+
+%test
+    elastix --version
+    cd /opt/brainhops-eval
+    python -m software.elastix.generate --help

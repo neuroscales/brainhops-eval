@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "datasets": {
+    "nibabel-anatomical": {
+      "url": "https://raw.githubusercontent.com/nipy/nibabel/7b5060e4bb105ed0c08c203db3dc5cf536d9c2aa/nibabel/tests/data/anatomical.nii",
+      "filename": "nibabel-anatomical.nii",
+      "sha256": "1c089f37b6597a38bb4157a1e1b3f7f13f1bc9d4e7a8cfdfaf91d85cd8f66594",
+      "version": "nibabel 5.3.2 (7b5060e4bb105ed0c08c203db3dc5cf536d9c2aa)",
+      "license": "MIT; see upstream COPYING and datasets/README.md",
+      "license_file": "nibabel-LICENSE.txt",
+      "license_url": "https://github.com/nipy/nibabel/blob/7b5060e4bb105ed0c08c203db3dc5cf536d9c2aa/COPYING",
+      "attribution": "NiBabel contributors, anatomical.nii test image",
+      "description": "Small anatomical example for exercising the real-data download pipeline. Synthetic geometry cases remain the primary diagnostic fixtures."
+    }
+  }
+}
+

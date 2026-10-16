@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Evaluation data, reports, downloads, and built package containers
+work/
+*.sif
+.apptainer/

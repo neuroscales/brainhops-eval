@@ -1,0 +1,173 @@
+name: Evaluate brainhops
+run-name: Evaluate brainhops ${{ inputs.brainhops_ref }} (${{ inputs.packages }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      brainhops_ref:
+        description: brainhops commit SHA, tag, or branch
+        type: string
+        required: true
+        default: main
+      packages:
+        description: Software folder names, comma-separated, or all
+        type: string
+        default: simpleitk
+      dataset:
+        description: Image source (used when generating fixtures)
+        type: choice
+        options: [phantom, nibabel-anatomical]
+        default: phantom
+      interface:
+        description: Public Python image application API or documented CLI
+        type: choice
+        options: [python, cli]
+        default: python
+      fixtures_run_id:
+        description: Reuse fixture artifacts from this Actions run ID (empty means generate)
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      evaluator_ref:
+        description: brainhops-eval ref to check out when called from another repository
+        type: string
+        default: main
+      brainhops_ref:
+        type: string
+        required: true
+      packages:
+        type: string
+        default: simpleitk
+      dataset:
+        type: string
+        default: phantom
+      interface:
+        type: string
+        default: python
+      fixtures_run_id:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.version.outputs.sha }}
+      packages: ${{ steps.version.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: neuroscales/brainhops-eval
+          ref: ${{ github.repository == 'neuroscales/brainhops-eval' && github.sha || inputs.evaluator_ref }}
+          persist-credentials: false
+      - name: Check out the selected brainhops version
+        uses: actions/checkout@v4
+        with:
+          repository: neuroscales/brainhops
+          ref: ${{ inputs.brainhops_ref }}
+          path: brainhops-source
+          persist-credentials: false
+      - id: version
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          INTERFACE: ${{ inputs.interface }}
+          FIXTURES_RUN_ID: ${{ inputs.fixtures_run_id }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys
+          packages = os.environ['PACKAGES']
+          selected = json.loads(subprocess.check_output([sys.executable, 'scripts/select_software.py', packages], text=True))
+          assert os.environ['INTERFACE'] in ('python', 'cli'), 'Unknown interface'
+          run_id = os.environ['FIXTURES_RUN_ID']
+          assert not run_id or run_id.isdecimal(), 'Fixture run ID must be numeric'
+          sha = subprocess.check_output(['git', '-C', 'brainhops-source', 'rev-parse', 'HEAD'], text=True).strip()
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('sha=' + sha + '\n')
+              stream.write('packages=' + json.dumps(selected) + '\n')
+          PY
+
+  generate:
+    if: inputs.fixtures_run_id == ''
+    uses: ./.github/workflows/generate-fixtures.yml
+    with:
+      packages: ${{ inputs.packages }}
+      dataset: ${{ inputs.dataset }}
+      evaluator_ref: ${{ inputs.evaluator_ref || 'main' }}
+
+  evaluate:
+    needs: [resolve, generate]
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON(needs.resolve.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: neuroscales/brainhops-eval
+          ref: ${{ github.repository == 'neuroscales/brainhops-eval' && github.sha || inputs.evaluator_ref }}
+          persist-credentials: false
+      - name: Check out brainhops at the resolved immutable commit
+        uses: actions/checkout@v4
+        with:
+          repository: neuroscales/brainhops
+          ref: ${{ needs.resolve.outputs.sha }}
+          path: work/brainhops-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install selected brainhops and evaluation tools
+        run: python -m pip install . './work/brainhops-source[nifti,pillow,itk]'
+      - name: Download native fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: fixtures-${{ matrix.backend }}
+          path: work/fixtures
+          run-id: ${{ inputs.fixtures_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Compare resampling and write visual report
+        env:
+          BRAINHOPS_REF: ${{ inputs.brainhops_ref }}
+          BRAINHOPS_SHA: ${{ needs.resolve.outputs.sha }}
+          INTERFACE: ${{ inputs.interface }}
+        run: |
+          export BRAINHOPS_EVAL_SHA="$(git rev-parse HEAD)"
+          brainhops-eval evaluate --fixtures work/fixtures --output work/report \
+            --brainhops-ref "$BRAINHOPS_REF" --brainhops-sha "$BRAINHOPS_SHA" \
+            --interface "$INTERFACE"
+      - name: Upload report even when comparisons fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.backend }}-${{ needs.resolve.outputs.sha }}-${{ inputs.interface }}
+          path: work/report/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Summarize
+        if: always()
+        env:
+          BRAINHOPS_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path('work/report/results.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
+              stream.write('brainhops commit: `' + os.environ['BRAINHOPS_SHA'] + '`\n\n')
+              if path.exists():
+                  result = json.loads(path.read_text())
+                  stream.write('| Case | Status |\n| --- | --- |\n')
+                  for case in result['cases']:
+                      stream.write('| ' + case['id'] + ' | ' + case['status'] + ' |\n')
+                  stream.write('\nDownload the report artifact and open index.html for visual comparisons.\n')
+              else:
+                  stream.write('Evaluation did not produce results; inspect the job logs.\n')
+          PY
+
