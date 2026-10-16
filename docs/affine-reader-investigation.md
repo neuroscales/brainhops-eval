@@ -65,10 +65,10 @@ source class, rather than inferring readable data from a storage-field
 presence check. It also adds two regression cases that apply the transform
 to directly loaded NIfTI images **before** checking generic conversion.
 
-This patch was tested in a separate brainhops worktree. The evaluator and
+The fix is open as [brainhops PR #473](https://github.com/neuroscales/brainhops/pull/473),
+rebased onto current main. It was tested in a separate brainhops worktree. The evaluator and
 its production comparisons have no monkeypatch, image adapter, replacement
-transform or version-specific workaround. The patch has not been installed
-into the selected brainhops version or pushed to the brainhops repository.
+transform or version-specific workaround. The evaluator does not install the patch into the selected brainhops version.
 The candidate passed 364 selected brainhops tests covering the two readers,
 affine inverses, factorisation, separable resampling and format conversion;
 this was not a run of the entire brainhops test suite.
