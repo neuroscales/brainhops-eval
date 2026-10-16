@@ -16,7 +16,7 @@ import numpy as np
 from .boundaries import policy_for
 from .comparison import assess, compare, conclude, reference_in_output_dtype
 from .files import digest, read_json, relative_file, verify, write_json
-from .report import montage, write_report
+from .report import markdown_summary, montage, write_report
 from .resampling import (
     CasePaths,
     execute,
@@ -45,6 +45,7 @@ def _provenance(
     """Record immutable versions, fixture identity, registration, and reader probes."""
     result = dict(
         schema_version=2,
+        brainhops_array_backend="numpy",
         brainhops_ref=brainhops_ref,
         brainhops_sha=brainhops_sha,
         brainhops_version=importlib.metadata.version("brainhops"),
@@ -163,6 +164,7 @@ def _save_report(output: Path, result: Record) -> None:
             write_json(output / filename, result[key])
     write_json(output / "results.json", result)
     write_report(output, result)
+    (output / "summary.md").write_text(markdown_summary(result))
 
 
 def evaluate(

@@ -12,6 +12,7 @@ from urllib.parse import quote
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .files import relative_file
 from .types import Array, PathLike, Record
 
 _STATUS_ORDER = {"error": 0, "fail": 1, "warning": 2, "pass": 3}
@@ -85,6 +86,19 @@ def montage(
             draw.text((x + 4, y + 4), label, fill="black")
             canvas.paste(tile, (x + (width - tile.width) // 2, y + 25))
     canvas.save(path)
+
+
+_BOUNDARY_LABELS = {
+    "grid-constant": "Zero-extended grid interpolation",
+    "constant": "Zero outside voxel centres",
+    "nearest": "Extend edge values indefinitely",
+    "reflect": "Reflect at the outer edge",
+    "mirror": "Mirror about edge voxel centres",
+    "half-voxel-clamp": "Clamp within the half-voxel extent; zero outside",
+    "strict-half-voxel-clamp": "Clamp strictly inside the half-voxel extent; zero at/outside endpoints",
+    "half-voxel-mirror": "Mirror interpolation inside the half-voxel extent; zero outside",
+    "center-clipped-background": "Clip to voxel-centre FOV; use measured background outside",
+}
 
 
 def _escape(value: object) -> str:
@@ -226,7 +240,7 @@ def _metrics(case: Record) -> str:
             f'<td class="numeric">≤ {threshold:.6g}</td><td>{_badge(status)}</td></tr>'
         )
     return (
-        "<h2>Interior acceptance</h2><p>Both maximum error and normalised RMSE must pass. "
+        "<h2>Interior acceptance</h2><p>Both maximum error and normalised RMSE must pass. NRMSE divides RMSE by the reference intensity range (at least one). "
         "Integer output requires zero differing interior voxels.</p>"
         "<table><tr><th>Measure</th><th>Observed</th><th>Required</th><th>Check</th></tr>"
         + "".join(rows)
@@ -245,6 +259,7 @@ def _metadata(case: Record) -> str:
         ("Reference image", case.get("reference_image", case.get("reference", {}))),
         ("Transform", case.get("transform")),
         ("Reader hint", case.get("transform_hint")),
+        ("Application interface", case.get("interface", "not recorded")),
         ("Interpolation degree", case.get("degree", "not recorded")),
         ("Output / comparison dtype", case.get("comparison_dtype", "not produced")),
         ("Native reference dtype", case.get("reference_output_dtype", "not recorded")),
@@ -285,7 +300,7 @@ def _details(case: Record) -> str:
 
 def _write_case(output: Path, case: Record, result: Record) -> None:
     """Write an individual case with explanation, thresholds, montage and drill-down."""
-    directory = output / case["id"]
+    directory = relative_file(output, case["id"])
     directory.mkdir(exist_ok=True)
     header = (
         '<p><a href="../index.html">← All cases</a></p><header><div class="eyebrow">'
@@ -341,11 +356,7 @@ def write_report(output: PathLike, result: Record) -> None:
         "<p>brainhops images are used directly from its readers. No replacement images, input casts, "
         "axis fixes or geometry adapters are applied.</p></section>"
     )
-    boundary = ""
-    if result.get("boundary_probes"):
-        boundary = (
-            '<p><a href="boundary-probes.json">Native fractional-voxel boundary probes</a></p>'
-        )
+    boundary = _boundary_probe(result)
     content = (
         header
         + _stats(result["cases"])
@@ -365,3 +376,95 @@ def copy_assets(output: PathLike) -> None:
     for name in ("report.css", "report.js"):
         asset = files("brainhops_eval").joinpath("assets", name)
         (output / name).write_text(asset.read_text())
+
+
+def _boundary_curve(probe: Record, sample: Record) -> str:
+    """Plot native ramp samples against public constant-padding predictions."""
+    values = sample.get("model_values", {}).get("grid-constant")
+    if not values:
+        return ""
+    x = np.asarray(probe["sample_x_voxels"])
+    native = np.asarray(sample["native_values"])
+    upper = max(float(max(native.max(), max(values))), 1)
+
+    def points(series: Array) -> str:
+        """Project sampled coordinates into the static SVG viewport."""
+        px = 45 + (x - x.min()) / max(float(np.ptp(x)), 1e-12) * 800
+        py = 185 - np.asarray(series) / upper * 150
+        return " ".join(f"{a:.2f},{b:.2f}" for a, b in zip(px, py, strict=True))
+
+    return (
+        '<svg viewBox="0 0 880 230" role="img" aria-label="Native edge samples versus grid-zero padding">'
+        '<path d="M45 25V185H850" stroke="#8795a6" fill="none"/>'
+        f'<polyline points="{points(native)}" fill="none" stroke="#182738" stroke-width="2"/>'
+        f'<polyline points="{points(np.asarray(values))}" fill="none" stroke="#1769bf" stroke-width="2" stroke-dasharray="6 4"/>'
+        f'<text x="10" y="40" font-size="12">{upper:.3g}</text><text x="20" y="190" font-size="12">0</text>'
+        f'<text x="42" y="205" font-size="12">{x.min():g}</text><text x="820" y="205" font-size="12">{x.max():g}</text>'
+        '<text x="300" y="225" font-size="13">Source x coordinate in voxels</text></svg>'
+        "<figcaption>Black: native image samples. Dashed blue: grid-zero interpolation "
+        "(brainhops constant). This is an independent float-ramp probe.</figcaption>"
+    )
+
+
+def _boundary_probe(result: Record) -> str:
+    """Explain measured image-edge behavior separately from transformation support."""
+    probe = result.get("boundary_probes")
+    if not probe:
+        return ""
+    rows, plots = [], []
+    for sample in probe["interpolation"]:
+        error = sample["model_errors"]["grid-constant"]["max_abs"]
+        matches = (
+            "; ".join(_BOUNDARY_LABELS.get(name, name) for name in sample["matching_models"])
+            or "No tested rule matched"
+        )
+        rows.append(
+            f"<tr><td>{sample['degree']}</td><td>{_escape(matches)}</td>"
+            f'<td class="numeric">{error:.6g}</td><td>{sample.get("measured_far_background", "not recorded")}</td></tr>'
+        )
+        plots.append(
+            f"<h3>Interpolation degree {sample['degree']}</h3>" + _boundary_curve(probe, sample)
+        )
+    return (
+        '<details class="card"><summary>Measured image boundary conventions</summary>'
+        "<p>These probes distinguish padding, half-voxel clipping/clamping, and estimated background. "
+        "They do not establish nonlinear transform-field support. A rule that lacks a public brainhops "
+        "equivalent remains a documented boundary warning; loaded images are never patched.</p>"
+        "<table><tr><th>Degree</th><th>Matching native rule</th><th>Max difference from constant</th>"
+        "<th>Far-background sample</th></tr>"
+        + "".join(rows)
+        + "</table>"
+        + "".join(plots)
+        + '<p><a href="boundary-probes.json">Full samples, model residuals and provenance</a></p></details>'
+    )
+
+
+def markdown_summary(result: Record, limit: int = 30) -> str:
+    """Summarise status counts and actionable failures for the Actions job summary."""
+    counts = Counter(case["status"] for case in result["cases"])
+    lines = [
+        f"## {result['backend']} evaluation",
+        f"brainhops commit: `{result['brainhops_sha']}`",
+        "",
+        " · ".join(f"{counts[status]} {status}" for status in ("pass", "warning", "fail", "error")),
+        "",
+        "Boundary-only warnings do not fail acceptance. Interior/axis failures and errors do.",
+        "",
+        "| Case | Status | Why |",
+        "| --- | --- | --- |",
+    ]
+    cases = sorted(result["cases"], key=lambda c: (_STATUS_ORDER.get(c["status"], 4), c["id"]))
+    for case in cases[:limit]:
+        reason = case_summary(case).replace("|", "\\|").replace("\n", " ")
+        identifier = case["id"].replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {identifier} | {case['status']} | {reason} |")
+    if len(cases) > limit:
+        lines.extend(["", f"{len(cases) - limit} more cases are in the full HTML report."])
+    lines.extend(
+        [
+            "",
+            "Download the report artifact and open index.html for filtered results, thresholds and montages.",
+            "Main-branch runs are also published to GitHub Pages after completion.",
+        ]
+    )
+    return "\n".join(lines) + "\n"

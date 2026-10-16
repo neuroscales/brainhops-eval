@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from .files import read_json, write_json
+from .files import read_json, relative_file, write_json
 from .report import case_summary, copy_assets, page_document, write_report
 from .types import PathLike, Record
 
@@ -29,7 +29,8 @@ def _copy_report(source: Path, target: Path, result: Record) -> None:
         if path.is_file() and path.suffix.lower() in _PUBLISHED_SUFFIXES:
             destination = target / path.relative_to(source)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, destination)
+            safe_source = relative_file(source, path.relative_to(source))
+            shutil.copyfile(safe_source, destination)
     write_report(target, result)
 
 
@@ -64,6 +65,12 @@ def build_site(reports: PathLike, output: PathLike, run_url: str = "") -> Record
     commits = {result["brainhops_sha"] for _, result in results}
     if len(commits) > 1:
         raise ValueError("Cannot publish mixed brainhops commits as one evaluation run")
+    contexts = list(reports.rglob("evaluation-context.json"))
+    if len(contexts) > 1:
+        raise ValueError("Expected one evaluation run context")
+    context = read_json(contexts[0]) if contexts else {}
+    if commits and context and context["brainhops_sha"] not in commits:
+        raise ValueError("Run context and report brainhops commits disagree")
     output.mkdir(parents=True, exist_ok=True)
     cards, names, summaries = [], set(), []
     for source, result in results:
@@ -82,15 +89,20 @@ def build_site(reports: PathLike, output: PathLike, run_url: str = "") -> Record
                 passed=bool(result.get("passed")),
             )
         )
-    sha = next(iter(commits), "No version evaluated")
+    sha = next(iter(commits), context.get("brainhops_sha", "No version evaluated"))
+    expected = {backend + "-" + context["interface"] for backend in context.get("packages", [])}
+    missing = sorted(expected - names)
+    complete = bool(results) and not missing if context else (None if results else False)
     manifest = dict(
         schema_version=1,
         brainhops_sha=sha,
         run_url=run_url,
         generated_at=datetime.now(UTC).isoformat(),
         reports=summaries,
-        complete=bool(results),
-        passed=bool(results) and all(r["passed"] for r in summaries),
+        complete=complete,
+        missing_reports=missing,
+        coverage_known=bool(context),
+        passed=complete is True and all(r["passed"] for r in summaries),
     )
     write_json(output / "site.json", manifest)
     copy_assets(output)
@@ -112,6 +124,15 @@ def _write_overview(output: Path, manifest: Record, cards: list[str]) -> None:
         "Actions artifacts for 90 days. Reports are published even when comparisons fail.</p></header>"
     )
     empty = '<p class="notice error">No backend produced a report. Evaluation is incomplete; inspect the Actions run.</p>'
-    content = header + ("".join(cards) if cards else empty)
+    notice = ""
+    if manifest["missing_reports"]:
+        notice = (
+            '<p class="notice error">Missing reports: '
+            + esc(", ".join(manifest["missing_reports"]))
+            + ". This run is incomplete.</p>"
+        )
+    elif not manifest["coverage_known"] and cards:
+        notice = '<p class="notice warning">Legacy run has no package manifest; completeness cannot be verified.</p>'
+    content = header + notice + ("".join(cards) if cards else empty)
     (output / "index.html").write_text(page_document("brainhops evaluation results", content))
     (output / ".nojekyll").touch()

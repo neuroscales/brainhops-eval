@@ -53,6 +53,14 @@ jobs:
           path: work/reports
           run-id: ${{ steps.run.outputs.id }}
           github-token: ${{ github.token }}
+      - name: Download run manifest when available
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: evaluation-context
+          path: work/reports/context
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
       - name: Build portal, including failed comparisons
         env:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}

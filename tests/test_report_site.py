@@ -74,6 +74,9 @@ def _artifact(root: Path, backend='simpleitk', sha='commit-123'):
     case = _case(np.zeros((4, 4)), np.zeros((4, 4)), np.ones((4, 4), bool))
     result = _result(case, backend, sha)
     write_json(root / 'results.json', result)
+    context = root.parent / 'evaluation-context.json'
+    if not context.exists():
+        write_json(context, dict(brainhops_sha=sha, packages=[backend], interface='python'))
     write_json(root / 'registration.json', {})
     write_report(root, result)
     (root / 'example/brainhops.nii.gz').write_bytes(b'full resliced image stays in Actions')
@@ -108,3 +111,30 @@ def test_site_without_reports_is_explicitly_incomplete(tmp_path):
     manifest = build_site(tmp_path / 'missing', tmp_path / 'site')
     assert not manifest['complete'] and not manifest['passed']
     assert 'No backend produced a report' in (tmp_path / 'site/index.html').read_text()
+
+
+def test_site_marks_missing_requested_backend_incomplete(tmp_path):
+    reports = tmp_path / 'reports'
+    _artifact(reports / 'first')
+    write_json(reports / 'evaluation-context.json',
+               dict(brainhops_sha='commit-123', packages=['simpleitk', 'ants'], interface='python'))
+    manifest = build_site(reports, tmp_path / 'site')
+    assert not manifest['complete'] and not manifest['passed']
+    assert manifest['missing_reports'] == ['ants-python']
+    assert 'Missing reports: ants-python' in (tmp_path / 'site/index.html').read_text()
+
+
+def test_site_legacy_run_does_not_claim_known_completeness(tmp_path):
+    reports = tmp_path / 'reports'
+    _artifact(reports / 'first')
+    (reports / 'evaluation-context.json').unlink()
+    manifest = build_site(reports, tmp_path / 'site')
+    assert manifest['complete'] is None and not manifest['passed']
+    assert 'completeness cannot be verified' in (tmp_path / 'site/index.html').read_text()
+
+
+def test_report_refuses_case_path_traversal(tmp_path):
+    case = _case(np.zeros((4, 4)), np.zeros((4, 4)), np.ones((4, 4), bool))
+    case['id'] = '../outside'
+    with pytest.raises(ValueError, match='escapes fixture directory'):
+        write_report(tmp_path, _result(case))
