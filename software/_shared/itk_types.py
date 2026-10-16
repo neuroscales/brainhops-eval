@@ -115,6 +115,13 @@ def entries(output, backend):
         transforms += [('registered-bspline', spline, 'registered-bspline'),
                        ('registered-affine-bspline', combined, 'registered-affine-bspline')]
     for name, transform, family in transforms:
+        if name == 'bspline-order0' and all(
+            np.linalg.norm(np.asarray(transform.TransformPoint(p)) - p) < 1e-8 for p in points
+        ):
+            unavailable.append(dict(family=family, representation='tfm/h5/mat',
+                                    reason='SimpleITK native order-0 initializer/valid-region defect produces a no-op despite nonzero coefficients; not claimed as nonlinear coverage',
+                                    native_fixed_parameters=list(transform.GetFixedParameters())))
+            continue
         for extension in ('tfm', 'h5', 'mat'):
             path = output / 'transforms' / f'{name}.{extension}'
             # ITK's MATLAB IO cannot encode CompositeTransform containers.
@@ -195,6 +202,14 @@ def append_png(output, backend, apply_2d):
         observed[role] = geometry(native)
     probes['png'] = observed
     for name, transform in transforms:
+        if name == 'bspline-order0' and all(
+            np.linalg.norm(np.asarray(transform.TransformPoint(p)) - p) < 1e-8
+            for p in [(12., 13.), (23., 24.), (31., 29.)]
+        ):
+            coverage['unavailable'].append(dict(family='2d-' + name, representation='tfm/h5/mat',
+                                                reason='SimpleITK native order-0 initializer/valid-region defect produces a no-op despite nonzero coefficients; not claimed as nonlinear coverage',
+                                                native_fixed_parameters=list(transform.GetFixedParameters())))
+            continue
         for extension in ('tfm', 'h5', 'mat'):
             if extension == 'mat' and isinstance(transform, sitk.CompositeTransform):
                 coverage['unavailable'].append(dict(family=f'2d-{name}', representation=extension,

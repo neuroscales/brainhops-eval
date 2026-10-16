@@ -85,7 +85,7 @@ package only consumes the resulting bundle. No native generator imports brainhop
 
 | Software | Native transform representations attempted (build omissions recorded below) |
 | --- | --- |
-| SimpleITK / ITK | 2D PNG and 3D physical images; identity, translation, scale/log scale, Euler, similarity, affine/matrix-offset, versor variants, quaternion rigid and composed scale/skew; B-spline orders 0–3; dense and inverse displacement; mixed affine/B-spline/field composites in both orders; TFM, HDF5, MATLAB and vector NIfTI where encodable; estimated B-spline and affine+B-spline |
+| SimpleITK / ITK | 2D PNG and 3D physical images; identity, translation, scale/log scale, Euler, similarity, affine/matrix-offset, versor variants, quaternion rigid and composed scale/skew; B-spline orders 1–3 (order 0 recorded as a native gap when its movement probe is a no-op); dense and inverse displacement; mixed affine/B-spline/field composites in both orders; TFM, HDF5, MATLAB and vector NIfTI where encodable; estimated B-spline and affine+B-spline |
 | ANTs | Native-reader-supported ITK representations above, including 2D PNG; estimated SyN forward/inverse NIfTI warps and native affine+SyN HDF5 composites in both orders |
 | FSL | FNIRT quadratic/cubic coefficients with embedded affine; relative displacement and absolute coordinate fields; coefficient-to-dense conversions; inverse field and materialised warp+affine composition |
 | NiftyReg | All seven `NREG_TRANS_TYPE` values: deformation, displacement, cubic/linear control grids, dense positional/displacement velocities and spline velocity; native integration/conversion; estimated cubic grid and affine+field composition |
