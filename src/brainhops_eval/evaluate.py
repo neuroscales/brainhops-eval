@@ -188,7 +188,7 @@ def evaluate(
 
     The selected brainhops is imported only here. Source/reference images are
     used directly from its readers; no replacement objects or geometry fixes
-    are applied. Boundary-only discrepancies warn, and reader/interior failures
+    are applied. Boundary and one-unit integer discrepancies warn, and reader/interior failures
     fail the run. An empty output directory prevents stale results.
     """
     import brainhops.io as bio

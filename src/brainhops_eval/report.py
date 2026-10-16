@@ -27,7 +27,7 @@ from .types import Array, PathLike, Record
 _STATUS_ORDER = {"error": 0, "fail": 1, "warning": 2, "pass": 3}
 _STATUS_MEANING = {
     "pass": "Interior and boundary thresholds satisfied",
-    "warning": "Interior passes; boundary-only differences",
+    "warning": "Nonblocking integer or boundary differences",
     "fail": "Interior values or axis interpretation disagree",
     "error": "Reader, application, or validation raised an exception",
 }
@@ -205,15 +205,23 @@ def _metrics(case: Record) -> str:
         if key not in metrics:
             continue
         value = metrics[key]
-        threshold = metrics[limit] if limit else 0
-        status = "pass" if value <= threshold else "fail"
+        threshold = metrics.get(limit) if limit else None
+        status = "pass"
+        required = "Informational"
+        if threshold is not None:
+            status = "pass" if value <= threshold else "fail"
+            required = f"≤ {threshold:.6g}"
+        if metrics.get("integer_warning") and key != "interior_nrmse":
+            status = "warning"
+        if key == "interior_mismatch_count" and value:
+            status = "warning" if metrics.get("integer_warning") else "fail"
         rows.append(
             f'<tr><td>{label}</td><td class="numeric">{value:.6g}</td>'
-            f'<td class="numeric">≤ {threshold:.6g}</td><td>{_badge(status)}</td></tr>'
+            f'<td class="numeric">{required}</td><td>{_badge(status)}</td></tr>'
         )
     return (
-        "<h2>Interior acceptance</h2><p>Both maximum error and normalised RMSE must pass. NRMSE divides RMSE by the reference intensity range (at least one). "
-        "Integer output requires zero differing interior voxels.</p>"
+        "<h2>Interior acceptance</h2><p>Floating output must pass both maximum error and normalised RMSE thresholds. NRMSE divides RMSE by the reference intensity range (at least one). "
+        "For integer output, NRMSE and mismatch counts are informational: one-unit differences warn, larger interior differences fail. Boolean output requires exact equality.</p>"
         "<table><tr><th>Measure</th><th>Observed</th><th>Required</th><th>Check</th></tr>"
         + "".join(rows)
         + "</table>"
@@ -332,9 +340,9 @@ def write_report(output: PathLike, result: Record) -> None:
     policy = (
         '<section class="panel"><h2>How to read this report</h2>'
         "<p>Native package output is compared in the decoded brainhops output dtype. "
-        "Integer values must match exactly after rounding and saturation of the reference. "
+        "Integer references are rounded and saturated to the output dtype. Differences of one intensity unit warn; larger interior differences fail. "
         "Floating-point output must pass both stated interior thresholds. "
-        "Boundary-only differences warn; input axes, interior discrepancies and application errors fail.</p>"
+        "Boundary-only differences warn. Axis errors, larger interior discrepancies and application errors fail.</p>"
         "<p>brainhops images are used directly from its readers. No replacement images, input casts, "
         "axis fixes or geometry adapters are applied.</p></section>"
     )
@@ -445,7 +453,7 @@ def markdown_summary(result: Record, limit: int = 30) -> str:
         "",
         " · ".join(f"{counts[status]} {status}" for status in ("pass", "warning", "fail", "error")),
         "",
-        "Boundary-only warnings do not fail acceptance. Interior/axis failures and errors do.",
+        "Boundary and one-unit integer warnings do not fail acceptance. Larger interior differences, axis failures and errors do.",
         "",
         "| Case | Status | Why |",
         "| --- | --- | --- |",

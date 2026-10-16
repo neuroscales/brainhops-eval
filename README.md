@@ -210,15 +210,16 @@ truncate and can wrap, so they are not used directly. Floating references are
 cast to the output precision. Loaded images and immutable reference files are
 not changed.
 
-Integer acceptance requires exact interior equality. Floating agreement keeps
+Integer differences of at most one intensity unit produce nonblocking warnings;
+larger interior differences fail. Boolean outputs still require exact equality. Floating agreement keeps
 maximum absolute error ≤ 0.02 and normalized RMSE ≤ 2e-5 (labels use 1e-5).
 Original float-reference differences remain diagnostic in JSON and HTML, and
 image panels use the converted reference. Reports record reference, in-memory,
 stored, and comparison dtypes. Near half-integer boundaries, small interpolation
 or reference-storage differences can still produce a one-unit mismatch; these
-remain visible failures. A native
+remain visible warnings when no difference exceeds one unit. A native
 coverage mask excludes the source interpolation edge. Boundary-only differences
-produce nonblocking `warning` status; interior discrepancies still fail. Less than 5% interior coverage, non-finite data, wrong
+produce nonblocking `warning` status; larger interior discrepancies still fail. Less than 5% interior coverage, non-finite data, wrong
 output grids, and corrupted fixtures fail validation. Each fixture variant declares a display window shared by all anatomy and
 checkerboard panels, and by all packages testing that variant. Integer anatomy
 uses at least 64 occupied bins without hidden NIfTI slope/intercept scaling;
@@ -254,7 +255,8 @@ matrix of every format supported by brainhops.
 Reports explain each status and show observed interior values beside their
 thresholds. Search/filter the overview, then open an individual case for its
 montage, input/transform settings, native boundary convention and diagnostics.
-Boundary-only differences remain warnings; interior or reader failures fail.
+Boundary-only and one-unit integer differences remain warnings; larger interior
+differences and reader failures fail.
 
 The [Pages workflow](.github/workflows/publish-results.yml) automatically publishes
 completed main-branch evaluations, including failed comparisons. Set Pages

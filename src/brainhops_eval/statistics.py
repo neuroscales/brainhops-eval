@@ -18,6 +18,7 @@ STATUS_LABELS = {
 }
 ISSUE_LABELS = {
     "integer-mismatch": "Integer-value disagreement",
+    "integer-quantization": "One-unit integer differences",
     "max-absolute-error": "Interior absolute-error threshold",
     "normalised-rmse": "Interior NRMSE threshold",
     "axis-interpretation": "Axis interpretation",
@@ -82,16 +83,18 @@ def issue_codes(case: Record) -> set[str]:
     codes = {reason["code"] for reason in case.get("diagnostics", [])}
     metrics = case.get("metrics", {})
     if metrics.get("interior_mismatch_count", 0):
-        codes.add("integer-mismatch")
+        codes.add("integer-quantization" if metrics.get("integer_warning") else "integer-mismatch")
     for key, limit, code in [
         ("interior_max_abs", "atol", "max-absolute-error"),
         ("interior_nrmse", "nrmse_limit", "normalised-rmse"),
     ]:
-        if not metrics.get("interior_mismatch_count") and metrics.get(key, 0) > metrics.get(
-            limit, float("inf")
-        ):
+        threshold = metrics.get(limit)
+        if not metrics.get("interior_mismatch_count") and threshold is not None and metrics.get(key, 0) > threshold:
             codes.add(code)
-    if metrics.get("boundary_warning") or case["status"] == "warning":
+    if metrics.get("boundary_warning") or (
+        case["status"] == "warning" and not case.get("diagnostics")
+        and not metrics.get("integer_warning")
+    ):
         codes.add("boundary-difference")
     if any(
         not all(item.get("checks", {}).values())

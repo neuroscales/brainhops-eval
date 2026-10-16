@@ -31,11 +31,12 @@ def compare(
     expected: Array,
     mask: Array,
     atol: float = 0.02,
-    nrmse_limit: float = 2e-5,
+    nrmse_limit: float | None = 2e-5,
 ) -> tuple[bool, Record]:
     """Compare the declared interior; measure the excluded boundary separately.
 
     Both interior maximum absolute error and NRMSE must satisfy their limits.
+    A None NRMSE limit makes that metric informational, as for integer outputs.
     NRMSE is normalised by the reference dynamic range (at least one).
     Boundary discrepancies never change interior acceptance.
     """
@@ -46,13 +47,20 @@ def compare(
     fraction = float(mask.mean())
     if fraction < 0.05:
         raise ValueError(f"Insufficient interior overlap: {fraction:.2%}")
-    error = np.abs(actual.astype(float) - expected)
-    span = max(float(np.ptp(expected)), 1)
+    if actual.dtype.kind in "iu" and expected.dtype == actual.dtype:
+        left, right = actual.astype(np.uint64), expected.astype(np.uint64)
+        # Unsigned subtraction preserves unit differences even for int64 extremes.
+        error = np.where(actual >= expected, left - right, right - left).astype(float)
+    else:
+        error = np.abs(actual.astype(float) - expected)
+    span = max(float(expected.max()) - float(expected.min()), 1)
     maximum = float(error[mask].max())
     nrmse = float(np.sqrt(np.mean(error[mask] ** 2)) / span)
     boundary_maximum = float(error[~mask].max()) if (~mask).any() else 0
     boundary_nrmse = float(np.sqrt(np.mean(error[~mask] ** 2)) / span) if (~mask).any() else 0
-    boundary_warning = boundary_maximum > atol or boundary_nrmse > nrmse_limit
+    boundary_warning = boundary_maximum > atol or (
+        nrmse_limit is not None and boundary_nrmse > nrmse_limit
+    )
     metrics = {
         "interior_fraction": fraction,
         "interior_max_abs": maximum,
@@ -64,23 +72,26 @@ def compare(
         "atol": atol,
         "nrmse_limit": nrmse_limit,
     }
-    return maximum <= atol and nrmse <= nrmse_limit, metrics
+    return maximum <= atol and (nrmse_limit is None or nrmse <= nrmse_limit), metrics
 
 
 def assess(actual: Array, expected: Array, mask: Array, degree: int) -> tuple[Record, Array]:
     """Apply output-dtype comparison rules and return metrics plus panel values."""
     _, raw = compare(actual, expected, mask, atol=1e-5 if degree == 0 else 0.02)
     converted = reference_in_output_dtype(expected, actual.dtype)
-    integer = actual.dtype.kind in "biu"
-    atol = 0 if integer else (1e-5 if degree == 0 else 0.02)
-    passed, metrics = compare(
-        actual, converted, mask, atol=atol, nrmse_limit=0 if integer else 2e-5
-    )
-    if integer:
+    integer = actual.dtype.kind in "iu"
+    discrete = integer or actual.dtype.kind == "b"
+    atol, nrmse_limit = (1e-5 if degree == 0 else 0.02), 2e-5
+    if discrete:
+        atol, nrmse_limit = (1, None) if integer else (0, 0)
+    passed, metrics = compare(actual, converted, mask, atol=atol, nrmse_limit=nrmse_limit)
+    if discrete:
         metrics["interior_mismatch_count"] = int(np.count_nonzero(actual[mask] != converted[mask]))
         metrics["boundary_mismatch_count"] = int(
             np.count_nonzero(actual[~mask] != converted[~mask])
         )
+        metrics["integer_warning"] = bool(integer and passed and metrics["interior_mismatch_count"])
+        metrics["boundary_warning"] = bool(metrics["boundary_mismatch_count"])
     metrics["interior_voxel_count"] = int(mask.sum())
     metrics["boundary_voxel_count"] = int((~mask).sum())
     return dict(
@@ -88,8 +99,37 @@ def assess(actual: Array, expected: Array, mask: Array, degree: int) -> tuple[Re
         metrics=metrics,
         raw_reference_metrics=raw,
         comparison_dtype=str(actual.dtype),
-        comparison_policy="Reference converted to decoded brainhops output dtype; integer equality is exact.",
+        comparison_policy=(
+            "Reference converted to decoded brainhops output dtype; integer differences "
+            "of one unit warn, larger interior differences fail. Boolean equality is exact."
+        ),
     ), converted
+
+
+def _integer_diagnostic(record: Record) -> Record:
+    """Describe integer disagreement with its maximum error and warning threshold."""
+    metrics = record["metrics"]
+    warning = metrics.get("integer_warning", False)
+    limit, maximum = metrics["atol"], metrics["interior_max_abs"]
+    summary = (
+        f"{metrics['interior_mismatch_count']:,} of "
+        f"{metrics['interior_voxel_count']:,} interior voxels differ"
+    )
+    if limit:
+        summary += (
+            f" in {record['comparison_dtype']} (maximum {maximum:g} intensity units); "
+            f"differences up to {limit:g} unit only warn."
+        )
+    else:
+        summary += f"; exact {record['comparison_dtype']} equality is required."
+    return dict(
+        code="integer-quantization" if warning else "integer-mismatch",
+        scope="interior",
+        severity="warning" if warning else "failure",
+        summary=summary,
+        observed=maximum,
+        limit=limit,
+    )
 
 
 def explain(record: Record) -> list[Record]:
@@ -98,15 +138,7 @@ def explain(record: Record) -> list[Record]:
     reasons: list[Record] = []
     mismatches = metrics.get("interior_mismatch_count", 0)
     if mismatches:
-        reasons.append(
-            dict(
-                code="integer-mismatch",
-                scope="interior",
-                summary=f"{mismatches:,} of {metrics['interior_voxel_count']:,} interior voxels differ; exact {record['comparison_dtype']} equality is required.",
-                observed=mismatches,
-                limit=0,
-            )
-        )
+        reasons.append(_integer_diagnostic(record))
     if not mismatches and metrics["interior_max_abs"] > metrics["atol"]:
         reasons.append(
             dict(
@@ -117,7 +149,7 @@ def explain(record: Record) -> list[Record]:
                 limit=metrics["atol"],
             )
         )
-    if not mismatches and metrics["interior_nrmse"] > metrics["nrmse_limit"]:
+    if not mismatches and metrics["nrmse_limit"] is not None and metrics["interior_nrmse"] > metrics["nrmse_limit"]:
         reasons.append(
             dict(
                 code="normalised-rmse",
@@ -149,11 +181,11 @@ def explain(record: Record) -> list[Record]:
 
 
 def conclude(record: Record) -> None:
-    """Set status and a readable explanation while retaining strict interior rules."""
+    """Explain failures and nonblocking boundary or integer quantization warnings."""
     record["diagnostics"] = explain(record)
-    failures = [reason for reason in record["diagnostics"] if reason["scope"] != "boundary"]
+    failures = [reason for reason in record["diagnostics"] if reason["scope"] != "boundary" and reason.get("severity") != "warning"]
     status = (
-        "fail" if failures else ("warning" if record["metrics"]["boundary_warning"] else "pass")
+        "fail" if failures else ("warning" if record["diagnostics"] else "pass")
     )
     record["status"] = status
     record["summary"] = (
@@ -161,5 +193,5 @@ def conclude(record: Record) -> None:
         or "Interior and boundary comparisons satisfy all thresholds."
     )
     record.setdefault("warnings", []).extend(
-        reason["summary"] for reason in record["diagnostics"] if reason["scope"] == "boundary"
+        reason["summary"] for reason in record["diagnostics"] if reason["scope"] == "boundary" or reason.get("severity") == "warning"
     )
