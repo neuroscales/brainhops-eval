@@ -20,3 +20,7 @@ Requires elastix/transformix on PATH and shared numerical requirements.
 Generation does not import brainhops; logs, exact registration parameters,
 version, landmark errors and independent world-coordinate checks are saved.
 Sparse integer rounding disagreements remain strict comparison failures.
+
+## Nonlinear cases
+
+Also exercises all eight supported transform names, B-spline orders 1–3, recursive B-splines, both Euler rotation orders, Compose/Add and nested chains, and native B-spline registration. Add chains are intentionally applied even though brainhops currently rejects that composition mode.

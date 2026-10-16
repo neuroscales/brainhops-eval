@@ -20,3 +20,7 @@ Generation does not import brainhops. It records commands, version, landmark
 errors and independently verifies native resampling against the physical pull.
 Direct brainhops RAS-transform application currently shows substantial
 numerical disagreement on these fixtures; reports retain these failures.
+
+## Nonlinear cases
+
+Nonlinear cases exercise every NREG_TRANS_TYPE (0–6), native integration/conversion, reg_f3d cubic registration and affine/field composition. NiftyReg 2.1.2 rejects displacement-velocity conversion in reg_transform, while reg_resample can apply it; the application remains tested and the converter limitation is recorded.

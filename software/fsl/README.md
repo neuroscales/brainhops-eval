@@ -27,3 +27,7 @@ Requires FLIRT on PATH, FSLDIR and LD_LIBRARY_PATH set to its runtime, plus the
 shared numerical requirements. Generation does not import brainhops. Commands,
 version/build, landmark errors and an independent geometric resampling check
 are saved. Numerical disagreement remains a failed brainhops comparison.
+
+## Nonlinear cases
+
+The runtime also extracts FNIRT, applywarp, convertwarp, invwarp and fnirtfileutils. Nonlinear cases cover quadratic/cubic coefficients with affine, relative/absolute dense fields, conversion, inverse and composition. Native convertwarp pre/post matrices preserve the original registration frames when application grids change. Known maps are independently checked in RAS.

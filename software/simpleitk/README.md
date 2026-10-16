@@ -13,3 +13,7 @@ python -m software.simpleitk.generate --inputs work/inputs --output work/fixture
 
 Or build `software/simpleitk/container.def` and use its runscript as described
 in `../README.md`. The recipe never imports brainhops.
+
+## Nonlinear cases
+
+Also generates native B-spline registration, all supported ITK transform families, dense/inverse fields, mixed composites and 2D PNG cases. See the nonlinear coverage matrix in `../README.md`.

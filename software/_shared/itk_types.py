@@ -5,6 +5,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import SimpleITK as sitk
+import subprocess
 
 from .nonlinear import append_cases, smooth_displacement, world_grid
 
@@ -16,9 +17,9 @@ def read_transform(path):
     try:
         return sitk.ReadTransform(str(path))
     except KeyError as error:
-        # SimpleITK 2.5 omits QuaternionRigid from its Python downcast map.
+        # SimpleITK 2.5 omits some transform IDs from its Python downcast map.
         # The native binding still returns a usable generic Transform.
-        if error.args != (sitk.sitkQuaternionRigid,):
+        if error.args not in ((sitk.sitkQuaternionRigid,), (sitk.sitkComposeScaleSkewVersor,)):
             raise
         return sitk._SimpleITK.ReadTransform(str(path))
 
@@ -204,15 +205,15 @@ def append_png(output, backend, apply_2d):
             native_path = case_dir / 'expected.nii.gz'
             try:
                 apply_2d(path, moving_path, fixed_path, 1, native_path, output / 'commands.log')
-            except Exception as error:
+            except subprocess.CalledProcessError as error:
                 # Native factory omissions are captured as capability failures;
                 # failed brainhops applications are never routed through here.
-                import subprocess
-                if backend != 'ants' or not isinstance(error, subprocess.CalledProcessError):
+                if backend != 'ants' or not any(token in (error.output or '').lower() for token in
+                                                ('could not create', 'not registered', 'not supported')):
                     raise
                 coverage['unavailable'].append(dict(family=f'2d-{name}', representation=extension,
                                                     reason='ANTs native reader rejected this 2-D type',
-                                                    native_error=str(error.output)[-1200:]))
+                                                    native_error=str(error.output)[:1800]))
                 continue
             np.save(case_dir / 'expected.npy', model_array(sitk.ReadImage(str(native_path))))
             source = sitk.ReadImage(str(moving_path), sitk.sitkFloat32)
@@ -227,7 +228,7 @@ def append_png(output, backend, apply_2d):
             np.save(case_dir / 'interior.npy', model_array(sitk.ReadImage(str(mask_output))) > .999)
             case = dict(id=case_dir.name, kind='png', degree=1, moving='inputs/moving.png', reference='inputs/fixed.png',
                         transform=str(path.relative_to(output)), transform_hint='itk',
-                        transform_family='2d-' + name, transform_representation=extension,
+                        transform_family='2d-' + name, transform_representation=extension, transform_origin='known-native',
                         expected=str((case_dir / 'expected.npy').relative_to(output)),
                         mask=str((case_dir / 'interior.npy').relative_to(output)), display_window=[0, 255])
             manifest['cases'].append(case)

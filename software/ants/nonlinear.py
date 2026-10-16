@@ -29,11 +29,11 @@ def append(output):
             apply_image(entry, fixed, fixed, 1, probe, log)
         except subprocess.CalledProcessError as error:
             text = error.output or ''
-            if not any(token in text.lower() for token in ('transform', 'reader', 'registered', 'unsupported')):
+            if not any(token in text.lower() for token in ('could not create', 'not registered', 'not supported')):
                 raise
             unavailable.append(dict(family=entry['family'], representation=entry['representation'],
                                     reason='ANTs native transform reader rejected this serialization',
-                                    native_error=text[-1200:], command_log='commands.log'))
+                                    native_error=text[:1800], command_log='commands.log'))
             continue
         supported.append(entry)
     prefix = folder / 'syn-'

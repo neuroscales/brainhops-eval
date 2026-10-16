@@ -77,3 +77,41 @@ owns native registration, transform encoding and resampling. The independent
 SciPy check validates conventions; native software produces the expected image.
 Native outputs may differ in storage axes only: the evaluator can undo an exact
 permutation/flip, but rejects any change to the requested physical sampling grid.
+
+## Nonlinear and composite coverage
+
+Each recipe appends nonlinear cases by default; the installed `brainhops_eval`
+package only consumes the resulting bundle. No native generator imports brainhops.
+
+| Software | Native transform representations exercised |
+| --- | --- |
+| SimpleITK / ITK | 2D PNG and 3D physical images; identity, translation, scale/log scale, Euler, similarity, affine/matrix-offset, versor variants, quaternion rigid and composed scale/skew; B-spline orders 0–3; dense and inverse displacement; mixed affine/B-spline/field composites in both orders; TFM, HDF5, MATLAB and vector NIfTI where encodable; estimated B-spline and affine+B-spline |
+| ANTs | Native-reader-supported ITK representations above, including 2D PNG; estimated SyN forward/inverse NIfTI warps and native affine+SyN HDF5 composites in both orders |
+| FSL | FNIRT quadratic/cubic coefficients with embedded affine; relative displacement and absolute coordinate fields; coefficient-to-dense conversions; inverse field and materialised warp+affine composition |
+| NiftyReg | All seven `NREG_TRANS_TYPE` values: deformation, displacement, cubic/linear control grids, dense positional/displacement velocities and spline velocity; native integration/conversion; estimated cubic grid and affine+field composition |
+| elastix | Translation, Euler (both rotation orders), similarity, affine, affine-log, affine-DTI; ordinary/recursive B-spline orders 1–3; Compose/Add chains, nested relative parameter references and estimated affine+B-spline chain |
+| MRtrix | Coordinates/displacements and affine+warp composition in MIF, compressed MIF and detached MIH; estimated forward/inverse deformation; full 5D registration warps in MIF/MIH, both source images and halfway/full mapping modes |
+
+`coverage.json` lists every generated representation and its application cases,
+plus explicit unavailable capabilities and native reader/converter errors.
+“Tested” means a native reference exists, not that brainhops passes it. Unsupported
+brainhops inputs that the native tool can apply remain visible evaluation errors.
+Known gaps include ITK MATLAB composites, FNIRT DCT evaluation, ANTs time-varying
+velocity/MINC, and NiftyReg velocity affine extensions and 2D fields. This matrix
+covers the public reader families; it is not a claim to enumerate every transform
+class available in every upstream ITK build.
+
+Known maps are spatially varying and asymmetric; mixed composites do not commute.
+Estimated nonlinear maps come from the actual registration programs. Each native
+representation is reapplied to world-preserving grid/orientation/dtype variants.
+Native nearest-resampled, eroded source support defines the comparison interior;
+field-domain borders are also excluded. Expected images always come from the
+native application tool. Original loaded brainhops images are used unchanged.
+Independent RAS checks validate known NiftyReg fields and FSL scaled-frame mapping;
+ITK serialization checks preserve physical point mappings and spline order.
+These checks validate representation/application agreement, not registration
+accuracy against a known nonlinear anatomical ground truth.
+
+Reports include coverage, quantitative comparisons, and lazy-loaded montages;
+all existing artifact retention and selected brainhops ref options apply to the
+expanded suites. A genuine interior or reader failure still makes evaluation fail.

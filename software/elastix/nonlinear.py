@@ -19,9 +19,22 @@ def apply_image(entry, source, reference, degree, output, log):
     for key in ('Size', 'Index', 'Spacing', 'Origin', 'Direction'):
         values[key] = geometry[key]
     values['FinalBSplineInterpolationOrder'] = [str(degree)]
-    initial = values.get('InitialTransformParametersFileName', ['"NoInitialTransform"'])[0].strip('"')
-    if initial != 'NoInitialTransform':
-        values['InitialTransformParametersFileName'] = ['"' + str((original.parent / initial).resolve()) + '"']
+    # Transformix resolves nested relative paths against the process cwd.
+    # Resolve every stage in a separate native-only copy; preserve portable
+    # original files for the reader under evaluation.
+    def resolve_initial(record, parent, depth=0):
+        initial = record.get('InitialTransformParametersFileName', ['"NoInitialTransform"'])[0].strip('"')
+        if initial == 'NoInitialTransform':
+            return
+        if depth > 32:
+            raise ValueError('Cyclic or excessive native transform chain')
+        initial_path = (parent / initial).resolve()
+        initial_values = parameters(initial_path)
+        resolve_initial(initial_values, initial_path.parent, depth + 1)
+        native_path = output.parent / (output.name + f'-initial-{depth}.txt')
+        save_parameters(native_path, initial_values)
+        record['InitialTransformParametersFileName'] = ['"' + str(native_path.resolve()) + '"']
+    resolve_initial(values, original.parent)
     path = output.parent / (output.name + '-parameters.txt')
     save_parameters(path, values)
     folder = output.parent / (output.name + '-transformix')
@@ -110,7 +123,7 @@ def append(output):
             apply_image(entry, moving, fixed, 1, target, log)
         except subprocess.CalledProcessError as error:
             text = error.output or ''
-            if not any(token in text for token in ('does not exist', 'Could not create', 'not installed', 'not supported')):
+            if not any(token in text for token in ('Could not create', 'not installed', 'not supported')):
                 raise
             unavailable.append(dict(family=entry['family'], reason='Native elastix factory rejected this type',
                                     native_error=text[-1500:], command_log='commands.log'))

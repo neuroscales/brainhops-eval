@@ -17,3 +17,7 @@ ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1 ANTS_RANDOM_SEED=1729 \
 The container definition sets these paths and runtime options automatically.
 No SimpleITK raster defaults are attributed to ANTs. This recipe never imports
 brainhops; see `../README.md` for the common bundle contract.
+
+## Nonlinear cases
+
+Also runs SyN, retains forward/inverse fields, assembles both affine/warp orders into HDF5, and probes native support for ITK and 2D PNG types. Native reader rejections are recorded in coverage.json.

@@ -20,3 +20,7 @@ Requires native binaries on PATH and shared numerical requirements. Commands,
 version, landmark errors and independent native world-coordinate checks are
 saved. Direct RAS-transform application in brainhops currently disagrees with
 native outputs; those cases fail visibly.
+
+## Nonlinear cases
+
+Also runs nonlinear registration and tests forward/inverse and full 5D warps, both from_image choices and halfway/full modes. Known coordinates, displacements and affine+warp composites are stored in .mif, .mif.gz and detached .mih. Halfway cases use the native halfway output grid.

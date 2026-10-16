@@ -44,6 +44,19 @@ def montage(path, reference, expected, actual, window=None):
 
 def write_report(output, result):
     esc = lambda value: html.escape(str(value))
+    coverage = result.get("transform_coverage", {})
+    coverage_html = ""
+    if coverage:
+        rows = ''.join('<tr><td>' + '</td><td>'.join(esc(row.get(key, '')) for key in
+                       ('family', 'representation', 'origin')) +
+                       f'</td><td>{len(row.get("cases", []))}</td></tr>'
+                       for row in coverage.get('tested', []))
+        gaps = ''.join(f'<li>{esc(row.get("family"))}: {esc(row.get("reason"))}</li>'
+                       for row in coverage.get('unavailable', []))
+        coverage_html = ('<h2>Transform coverage</h2><p><a href="coverage.json">Native capabilities and tested representations</a>. '
+                         'Tested means a native reference was generated; inspect each comparison status below.</p>'
+                         '<table><tr><th>Family</th><th>Representation</th><th>Origin</th><th>Cases</th></tr>' +
+                         rows + '</table><h3>Unavailable capabilities</h3><ul>' + gaps + '</ul>')
     sections = []
     for case in result["cases"]:
         metrics = case.get("metrics", {})
@@ -57,7 +70,7 @@ def write_report(output, result):
                if "axis_interpretation" in case else "")
             + (f'<h3>Warnings</h3><pre>{esc(chr(10).join(case["warnings"]))}</pre>'
                if case.get("warnings") else "")
-            + (f'<img src="{esc(case["preview"])}" alt="Comparison for {esc(case["id"])}">' if "preview" in case else "")
+            + (f'<img loading="lazy" src="{esc(case["preview"])}" alt="Comparison for {esc(case["id"])}">' if "preview" in case else "")
             + "</section>"
         )
     Path(output, "index.html").write_text(
@@ -75,6 +88,6 @@ def write_report(output, result):
         'Integer comparisons require exact interior equality after rounding and saturation. '
         'Differences against the original floating reference remain diagnostic.</p>'
         '<p><a href="results.json">Machine-readable results and provenance</a></p>'
-        + "".join(sections) + "</html>"
+        + coverage_html + "".join(sections) + "</html>"
     )
 

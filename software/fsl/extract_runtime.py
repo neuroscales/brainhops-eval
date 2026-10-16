@@ -14,7 +14,7 @@ import urllib.request
 
 LAYER = "sha256:8b22cc78a1b280b6a88cda4959b019bf9681593b2cf80987127c146ea0251dee"
 PREFIX = "usr/local/fsl/"
-BINARIES = ("flirt", "fnirt", "applywarp", "convertwarp", "invwarp", "fnirtfileutils")
+BINARIES = ("flirt", "fnirt", "applywarp", "convertwarp", "invwarp", "new_invwarp", "fnirtfileutils")
 
 
 class VerifiedStream:

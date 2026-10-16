@@ -103,7 +103,7 @@ jobs:
     needs: [resolve, generate]
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && (needs.generate.result == 'success' || needs.generate.result == 'skipped') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
