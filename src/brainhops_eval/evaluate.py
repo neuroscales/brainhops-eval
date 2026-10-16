@@ -97,6 +97,7 @@ def _initial_record(
     """Describe the exact input transform and requested application settings."""
     return dict(
         id=case["id"],
+        image_kind=case["kind"],
         status="error",
         stage="prepare case",
         moving=case["moving"],

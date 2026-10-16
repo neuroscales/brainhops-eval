@@ -138,3 +138,60 @@ def test_report_refuses_case_path_traversal(tmp_path):
     case['id'] = '../outside'
     with pytest.raises(ValueError, match='escapes fixture directory'):
         write_report(tmp_path, _result(case))
+
+
+def test_software_overview_keeps_warning_status_and_names_failed_tests(tmp_path):
+    from brainhops_eval.statistics import software_statistics
+    warning = _case(np.array([[5., 0], [0, 0]]), np.zeros((2, 2)),
+                    np.array([[False, True], [True, True]]))
+    warning['transform_family'] = 'affine'
+    failed = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    failed['transform_family'] = 'B-spline'
+    reports = [dict(_result(warning, 'ants'), _report_path='ants-python'),
+               dict(_result(failed, 'elastix'), _report_path='elastix-python')]
+    rows = {row['backend']: row for row in software_statistics(reports)}
+    assert rows['ants']['status'] == 'warning'
+    assert rows['ants']['counts'] == {'pass': 0, 'warning': 1, 'fail': 0, 'error': 0}
+    assert rows['elastix']['failed_families'] == {'B-spline': 1}
+    assert rows['elastix']['failure_reasons'] == {'integer-mismatch': 1}
+
+
+def test_portal_has_software_navigation_statistics_and_inline_montages(tmp_path):
+    from PIL import Image
+    reports, site = tmp_path / 'reports', tmp_path / 'site'
+    result = _artifact(reports / 'native')
+    case = result['cases'][0]
+    case.update(preview='example/comparison.png', transform_family='dense-displacement', degree=1,
+                image_kind='nifti', moving='source.nii.gz')
+    Image.new('RGB', (20, 20)).save(reports / 'native/example/comparison.png')
+    write_json(reports / 'native/results.json', result)
+    build_site(reports, site)
+    overview = (site / 'index.html').read_text()
+    software = (site / 'simpleitk-python/index.html').read_text()
+    detail = (site / 'simpleitk-python/example/index.html').read_text()
+    assert 'Results by software' in overview and 'Which tests fail?' in overview
+    assert 'Software results' in overview and 'SimpleITK' in overview
+    assert 'Transform family' in software and 'Output dtype' in software
+    assert 'dense-displacement' in software and 'Image interpolation' in software
+    assert 'Interior NRMSE' in software and 'Integer mismatches' in software
+    assert 'Qualitative comparisons' in software
+    assert 'src="./example/comparison.png"' in software
+    assert 'aria-current="page"' in software
+    assert '../../simpleitk-python/index.html' in detail
+
+
+def test_legacy_failures_are_classified_from_observed_metrics():
+    from brainhops_eval.statistics import issue_counts
+    case = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    case.pop('diagnostics')
+    assert issue_counts([case]) == {'integer-mismatch': 1}
+    case.update(status='error', error='Reader failed')
+    assert issue_counts([case]) == {'execution-error': 1}
+
+
+def test_one_case_is_counted_once_per_issue_not_per_axis_check():
+    from brainhops_eval.statistics import issue_counts
+    case = _case(np.zeros((2, 2)), np.zeros((2, 2)), np.ones((2, 2), bool))
+    case['axis_interpretation'] = {'moving': {'checks': {'first': False, 'second': False}}}
+    conclude(case)
+    assert issue_counts([case]) == {'axis-interpretation': 1}

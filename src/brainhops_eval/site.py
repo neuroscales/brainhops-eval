@@ -16,14 +16,16 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .files import read_json, relative_file, write_json
-from .report import case_summary, copy_assets, page_document, write_report
+from .report import copy_assets, page_document, write_report
+from .report_sections import software_navigation, status_badge
+from .statistics import ISSUE_LABELS, STATUSES, software_name, software_statistics
 from .types import PathLike, Record
 
 _PUBLISHED_SUFFIXES = frozenset({".html", ".png", ".css", ".js", ".json"})
 _BACKEND_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
-def _copy_report(source: Path, target: Path, result: Record) -> None:
+def _copy_report(source: Path, target: Path, result: Record, navigation: list[Record]) -> None:
     """Publish display/JSON assets and refresh legacy reports to the current UI."""
     for path in source.rglob("*"):
         if path.is_file() and path.suffix.lower() in _PUBLISHED_SUFFIXES:
@@ -31,23 +33,58 @@ def _copy_report(source: Path, target: Path, result: Record) -> None:
             destination.parent.mkdir(parents=True, exist_ok=True)
             safe_source = relative_file(source, path.relative_to(source))
             shutil.copyfile(safe_source, destination)
-    write_report(target, result)
+    write_report(target, {**result, "_site_navigation": navigation})
 
 
-def _report_card(result: Record, path: str) -> str:
-    """Summarise one native backend without concealing failed comparisons."""
-    counts = Counter(case["status"] for case in result["cases"])
+def _failure_types(summary: Record) -> str:
+    """Name failing transform families and numerical/reader checks in the overview."""
     esc = html.escape
-    status = "pass" if result.get("passed") else "fail"
-    detail = " · ".join(f"{counts[key]} {key}" for key in ("pass", "warning", "fail", "error"))
-    failures = [case for case in result["cases"] if case["status"] in ("error", "fail")]
-    first = '<p class="muted">All interior comparisons pass.</p>'
-    if failures:
-        first = "<p>" + esc(case_summary(failures[0])) + "</p>"
+    families = ", ".join(f"{name} ({count})" for name, count in summary["failed_families"].items())
+    reasons = "; ".join(
+        f"{ISSUE_LABELS.get(code, code)} ({count})"
+        for code, count in summary["failure_reasons"].items()
+    )
+    boundary = summary["boundary_cases"]
     return (
-        f'<section class="panel"><span class="badge {status}">{status}</span>'
-        f'<h2><a href="./{quote(path, safe="/")}/index.html">{esc(result["backend"])}</a></h2>'
-        f'<p>{esc(detail)}</p>{first}<p><a href="./{quote(path, safe="/")}/results.json">Quantitative JSON</a></p></section>'
+        "<strong>Families:</strong> "
+        + esc(families or "No blocking failures")
+        + "<br><strong>Checks:</strong> "
+        + esc(reasons or "All blocking checks pass")
+        + (
+            f"<br><small>Boundary discrepancies in {boundary} tests (nonblocking).</small>"
+            if boundary
+            else ""
+        )
+    )
+
+
+def _software_table(manifest: Record) -> str:
+    """Give one global row per software, including failed test categories and counts."""
+    rows = []
+    for summary in manifest["software"]:
+        name = html.escape(software_name(summary["backend"]))
+        path = quote(summary["paths"][0], safe="/")
+        counts = "".join(
+            f'<td class="numeric {status}" aria-label="{summary["counts"][status]} {status}">{summary["counts"][status]}</td>'
+            for status in STATUSES
+        )
+        rows.append(
+            f'<tr><th scope="row"><a href="{path}/index.html">{name}</a><br><small>{html.escape(", ".join(summary["interfaces"]))}</small></th>'
+            + f'<td>{status_badge(summary["status"])}</td><td class="numeric">{summary["total"]}</td>'
+            + counts
+            + f'<td class="failure-types">{_failure_types(summary)}</td><td><a class="button-link" href="{path}/index.html">Full results & images →</a></td></tr>'
+        )
+    for name in manifest["missing_reports"]:
+        rows.append(
+            f'<tr><th scope="row">{html.escape(name)}</th><td>{status_badge("incomplete")}</td><td colspan="7">No report produced. Inspect generation/evaluation logs in Actions.</td></tr>'
+        )
+    return (
+        '<section class="panel" id="software-summary"><h2>Results by software</h2>'
+        "<p><strong>Success:</strong> every check passes. <strong>Warning:</strong> only boundary differences. "
+        "<strong>Fail:</strong> interior/axis checks fail or execution errors occur. Open a software page for grouped statistics, all numerical comparisons and inline montages.</p>"
+        '<div class="table-scroll"><table class="software-table"><thead><tr><th>Software</th><th>Overall</th><th>Tests</th><th>Success</th><th>Warn</th><th>Fail</th><th>Error</th><th>Which tests fail?</th><th>Explore</th></tr></thead><tbody>'
+        + "".join(rows)
+        + '</tbody></table></div><p class="muted">Failure reasons can overlap within a test. Boundary differences can accompany a blocking failure; they never decide interior acceptance.</p></section>'
     )
 
 
@@ -72,14 +109,17 @@ def build_site(reports: PathLike, output: PathLike, run_url: str = "") -> Record
     if commits and context and context["brainhops_sha"] not in commits:
         raise ValueError("Run context and report brainhops commits disagree")
     output.mkdir(parents=True, exist_ok=True)
-    cards, names, summaries = [], set(), []
-    for source, result in results:
+    names, summaries, navigation = set(), [], []
+    for _, result in results:
         name = result["backend"] + "-" + result["interface"]
         if not _BACKEND_NAME.fullmatch(name) or name in names:
             raise ValueError(f"Invalid or duplicate report backend/interface: {name}")
         names.add(name)
-        _copy_report(source, output / name, result)
-        cards.append(_report_card(result, name))
+        result["_report_path"] = name
+        navigation.append(dict(backend=result["backend"], path=name))
+    for source, result in results:
+        name = result["_report_path"]
+        _copy_report(source, output / name, result, navigation)
         summaries.append(
             dict(
                 backend=result["backend"],
@@ -99,6 +139,8 @@ def build_site(reports: PathLike, output: PathLike, run_url: str = "") -> Record
         run_url=run_url,
         generated_at=datetime.now(UTC).isoformat(),
         reports=summaries,
+        software=software_statistics([result for _, result in results]),
+        navigation=navigation,
         complete=complete,
         missing_reports=missing,
         coverage_known=bool(context),
@@ -106,11 +148,11 @@ def build_site(reports: PathLike, output: PathLike, run_url: str = "") -> Record
     )
     write_json(output / "site.json", manifest)
     copy_assets(output)
-    _write_overview(output, manifest, cards)
+    _write_overview(output, manifest)
     return manifest
 
 
-def _write_overview(output: Path, manifest: Record, cards: list[str]) -> None:
+def _write_overview(output: Path, manifest: Record) -> None:
     """Explain the deployed version, run provenance and historical artifact retention."""
     esc = html.escape
     run_link = ""
@@ -131,8 +173,13 @@ def _write_overview(output: Path, manifest: Record, cards: list[str]) -> None:
             + esc(", ".join(manifest["missing_reports"]))
             + ". This run is incomplete.</p>"
         )
-    elif not manifest["coverage_known"] and cards:
+    elif not manifest["coverage_known"] and manifest["reports"]:
         notice = '<p class="notice warning">Legacy run has no package manifest; completeness cannot be verified.</p>'
-    content = header + notice + ("".join(cards) if cards else empty)
+    content = (
+        software_navigation(manifest["navigation"])
+        + header
+        + notice
+        + (_software_table(manifest) if manifest["reports"] else empty)
+    )
     (output / "index.html").write_text(page_document("brainhops evaluation results", content))
     (output / ".nojekyll").touch()

@@ -7,12 +7,21 @@ import json
 from collections import Counter
 from importlib.resources import files
 from pathlib import Path
-from urllib.parse import quote
 
 import numpy as np
 from PIL import Image, ImageDraw
 
 from .files import relative_file
+from .report_sections import (
+    issue_table,
+    quantitative_table,
+    registration_table,
+    software_navigation,
+    statistics_tables,
+    status_badge,
+    visual_gallery,
+)
+from .statistics import STATUS_LABELS, case_summary, software_name
 from .types import Array, PathLike, Record
 
 _STATUS_ORDER = {"error": 0, "fail": 1, "warning": 2, "pass": 3}
@@ -109,27 +118,9 @@ def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def case_summary(case: Record) -> str:
-    """Return a short reason, including for reports written before schema 2."""
-    if case.get("summary"):
-        return str(case["summary"])
-    if case.get("error"):
-        return case["error"].strip().splitlines()[-1]
-    metrics = case.get("metrics", {})
-    mismatches = metrics.get("interior_mismatch_count", 0)
-    if mismatches:
-        return f"{mismatches:,} interior voxels differ; exact integer equality is required."
-    if case["status"] == "fail":
-        return (
-            f"Interior max error {metrics.get('interior_max_abs', '?')} (limit {metrics.get('atol', '?')}); "
-            f"NRMSE {metrics.get('interior_nrmse', '?')} (limit {metrics.get('nrmse_limit', '?')}). Check axis interpretation too."
-        )
-    return _STATUS_MEANING.get(case["status"], "No comparison result.")
-
-
 def _badge(status: str) -> str:
     """Render a text status badge; colour is never its only meaning."""
-    return f'<span class="badge {_escape(status)}">{_escape(status)}</span>'
+    return status_badge(status)
 
 
 def page_document(title: str, content: str, prefix: str = "") -> str:
@@ -149,7 +140,7 @@ def _stats(cases: list[Record]) -> str:
     counts = Counter(case["status"] for case in cases)
     cards = "".join(
         f'<div class="stat {status}"><strong>{counts[status]:,}</strong>'
-        f"{status.capitalize()}<br><small>{meaning}</small></div>"
+        f"{STATUS_LABELS[status]}<br><small>{meaning}</small></div>"
         for status, meaning in _STATUS_MEANING.items()
     )
     return f'<div class="stats">{cards}</div>'
@@ -168,28 +159,6 @@ def _filters(cases: list[Record]) -> str:
         + '</select></label><label>Transform family<select id="family"><option value="">All families</option>'
         + options
         + '</select></label></div><p class="muted" id="visible-count"></p>'
-    )
-
-
-def _case_table(cases: list[Record]) -> str:
-    """Show failures first with reasons and links to compact individual case pages."""
-    rows = []
-    for case in sorted(cases, key=lambda c: (_STATUS_ORDER.get(c["status"], 4), c["id"])):
-        family = str(case.get("transform_family") or "affine")
-        link = "./" + quote(case["id"], safe="") + "/index.html"
-        maximum = case.get("metrics", {}).get("interior_max_abs")
-        value = f"{maximum:.6g}" if maximum is not None else "—"
-        rows.append(
-            f'<tr data-case-status="{_escape(case["status"])}" data-family="{_escape(family)}">'
-            f'<td>{_badge(case["status"])}</td><td class="case-name"><a href="{link}">{_escape(case["id"])}</a>'
-            f"<br><small>{_escape(family)} · {_escape(case.get('comparison_dtype', 'not produced'))}</small></td>"
-            f'<td class="reason">{_escape(case_summary(case))}</td><td class="numeric">{value}</td></tr>'
-        )
-    return (
-        '<div class="table-scroll"><table><thead><tr><th>Status</th><th>Case / family / dtype</th>'
-        "<th>Why this result?</th><th>Interior max error</th></tr></thead><tbody>"
-        + "".join(rows)
-        + "</tbody></table></div>"
     )
 
 
@@ -326,7 +295,8 @@ def _write_case(output: Path, case: Record, result: Record) -> None:
             "Absolute differences use their labelled scale. Slices follow reference voxel axes.</figcaption></figure>"
         )
     content = (
-        header
+        _site_menu(result, "../../")
+        + header
         + '<section class="panel">'
         + _metadata(case)
         + _metrics(case)
@@ -337,6 +307,12 @@ def _write_case(output: Path, case: Record, result: Record) -> None:
     (directory / "index.html").write_text(page_document(case["id"], content, "../"))
 
 
+def _site_menu(result: Record, prefix: str) -> str:
+    """Add software navigation only when a report belongs to a published portal."""
+    items = result.get("_site_navigation", [])
+    return software_navigation(items, prefix=prefix, current=result["backend"]) if items else ""
+
+
 def write_report(output: PathLike, result: Record) -> None:
     """Write an offline report index, per-case pages, and local CSS/JS assets."""
     output = Path(output)
@@ -345,13 +321,13 @@ def write_report(output: PathLike, result: Record) -> None:
         _write_case(output, case, result)
     header = (
         '<header><div class="eyebrow">Registration & resampling interoperability</div>'
-        "<h1>brainhops evaluation</h1>"
+        f"<h1>{_escape(software_name(result['backend']))} results</h1>"
         f"<p><strong>{_escape(result['backend'])}</strong> · {_escape(result['interface'])} interface · "
         f"brainhops {_escape(result['brainhops_version'])}</p>"
         f"<p>Requested ref: <code>{_escape(result['brainhops_ref'])}</code><br>"
         f"Resolved commit: <code>{_escape(result['brainhops_sha'])}</code></p>"
-        '<p><a href="results.json">Quantitative results & provenance</a> · '
-        '<a href="registration.json">Native registration quality</a></p></header>'
+        '<p class="downloads"><a href="results.json">Download full results (JSON)</a> · '
+        '<a href="registration.json">Download native registration provenance</a></p></header>'
     )
     policy = (
         '<section class="panel"><h2>How to read this report</h2>'
@@ -364,14 +340,21 @@ def write_report(output: PathLike, result: Record) -> None:
     )
     boundary = _boundary_probe(result)
     content = (
-        header
+        _site_menu(result, "../")
+        + header
+        + '<nav class="section-nav" aria-label="Results sections"><a href="#issues">Failure types</a><a href="#statistics">Statistics</a><a href="#quantitative">Numerical results</a><a href="#qualitative">Images</a></nav>'
         + _stats(result["cases"])
+        + issue_table(result["cases"])
+        + statistics_tables(result["cases"])
         + policy
+        + registration_table(result)
         + _coverage(result)
         + boundary
-        + "<h2>Case results</h2>"
+        + '<section id="quantitative"><h2>Numerical results by case</h2>'
         + _filters(result["cases"])
-        + _case_table(result["cases"])
+        + quantitative_table(result["cases"])
+        + "</section>"
+        + visual_gallery(result["cases"])
     )
     (output / "index.html").write_text(page_document("brainhops evaluation", content))
 
