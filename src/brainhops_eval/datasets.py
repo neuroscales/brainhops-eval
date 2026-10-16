@@ -7,9 +7,11 @@ import urllib.request
 from pathlib import Path
 
 from .files import digest, read_json, relative_file, write_json
+from .types import PathLike
 
 
-def fetch(manifest_path, name, cache):
+def fetch(manifest_path: PathLike, name: str, cache: PathLike) -> Path:
+    """Download a declared HTTPS dataset atomically after verifying licence and SHA256."""
     entry = read_json(manifest_path)["datasets"][name]
     checksum = entry["sha256"]
     if not re.fullmatch(r"[0-9a-f]{64}", checksum):
@@ -42,4 +44,3 @@ def fetch(manifest_path, name, cache):
         license_path = relative_file(Path(manifest_path).resolve().parent, entry["license_file"])
         shutil.copyfile(license_path, target.with_name(target.name + ".LICENSE.txt"))
     return target
-

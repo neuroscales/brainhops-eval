@@ -248,3 +248,17 @@ retain those grids even when application inputs are regridded.
 This repository provides six package containers and native
 generation/application/comparison paths; it is not a complete
 matrix of every format supported by brainhops.
+
+## Readable reports and GitHub Pages
+
+Reports explain each status and show observed interior values beside their
+thresholds. Search/filter the overview, then open an individual case for its
+montage, input/transform settings, native boundary convention and diagnostics.
+Boundary-only differences remain warnings; interior or reader failures fail.
+
+The [Pages workflow](.github/workflows/publish-results.yml) automatically publishes
+completed main-branch evaluations, including failed comparisons. Set Pages
+Source to **GitHub Actions**. The website shows the latest run; earlier runs and
+full output images remain in 90-day Actions artifacts. See [Pages setup and local
+preview](docs/pages.md), [library contracts](docs/library.md), and [measured boundary
+conventions and public-API limits](docs/boundaries.md).

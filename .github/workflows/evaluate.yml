@@ -75,11 +75,12 @@ jobs:
       - id: version
         env:
           PACKAGES: ${{ inputs.packages }}
+          BRAINHOPS_REF: ${{ inputs.brainhops_ref }}
           INTERFACE: ${{ inputs.interface }}
           FIXTURES_RUN_ID: ${{ inputs.fixtures_run_id }}
         run: |
           python - <<'PY'
-          import json, os, subprocess, sys
+          import json, os, pathlib, subprocess, sys
           packages = os.environ['PACKAGES']
           selected = json.loads(subprocess.check_output([sys.executable, 'scripts/select_software.py', packages], text=True))
           assert os.environ['INTERFACE'] in ('python', 'cli'), 'Unknown interface'
@@ -89,7 +90,17 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
               stream.write('sha=' + sha + '\n')
               stream.write('packages=' + json.dumps(selected) + '\n')
+          pathlib.Path('evaluation-context.json').write_text(json.dumps({
+              'schema_version': 1, 'brainhops_ref': os.environ['BRAINHOPS_REF'],
+              'brainhops_sha': sha, 'packages': selected, 'interface': os.environ['INTERFACE'],
+          }, indent=2) + '\n')
           PY
+      - name: Save requested package list and resolved version
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-context
+          path: evaluation-context.json
+          retention-days: 90
 
   generate:
     if: inputs.fixtures_run_id == ''
@@ -153,21 +164,9 @@ jobs:
           retention-days: 90
       - name: Summarize
         if: always()
-        env:
-          BRAINHOPS_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
-          python - <<'PY'
-          import json, os, pathlib
-          path = pathlib.Path('work/report/results.json')
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as stream:
-              stream.write('brainhops commit: `' + os.environ['BRAINHOPS_SHA'] + '`\n\n')
-              if path.exists():
-                  result = json.loads(path.read_text())
-                  stream.write('| Case | Status |\n| --- | --- |\n')
-                  for case in result['cases']:
-                      stream.write('| ' + case['id'] + ' | ' + case['status'] + ' |\n')
-                  stream.write('\nDownload the report artifact and open index.html for visual comparisons.\n')
-              else:
-                  stream.write('Evaluation did not produce results; inspect the job logs.\n')
-          PY
-
+          if [ -f work/report/summary.md ]; then
+            cat work/report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Evaluation did not produce results; inspect the job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi

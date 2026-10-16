@@ -60,3 +60,19 @@ All six container definitions built successfully in hosted runs; ANTs, FSL,
 NiftyReg, elastix and MRtrix native generation also passed there. The SimpleITK
 2D factory handling fix passed the local complete PNG generation regression;
 its updated hosted run is pending.
+
+## Follow-up investigation
+
+The order-0 SimpleITK initializer places its coefficient grid billions of mm
+away (an unsigned `order - 1` underflow), and the native transform remains an
+identity even after repairing the coefficient origin, due to its valid-region
+calculation. The 24 SimpleITK order-0 application cases in the historical table
+above were native no-ops, so they are not meaningful nonlinear coverage. The
+recipe now probes native movement and records these as capability gaps. No
+brainhops objects or reference values are modified to imitate that defect.
+The current meaningful inventory therefore excludes those 24 cases.
+
+Upstream fixes have merged as brainhops PRs #475 (detached MRtrix EOF headers),
+#476 (ITK B-spline order and 2D field systems), #477 (intent-0 FSL dense fields
+and retained deformation-type options), and #478 (additional native ITK affine
+families). The hosted evaluation now tests main including these fixes; evaluation never applies patches implicitly.

@@ -1,12 +1,16 @@
 """Inspect loaded raster axes against native package probes without adapting them."""
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
+from .types import PathLike, Record
 
-def raster_axis_check(image, path, package_geometry):
+
+def raster_axis_check(image: Any, path: PathLike, package_geometry: Record) -> Record:
+    """Inspect a loaded raster against native reader probes without adapting it."""
     from brainhops.datamodel.transformations import Affine
 
     path = Path(path)
@@ -18,11 +22,13 @@ def raster_axis_check(image, path, package_geometry):
     expected_data = storage.T
     actual_data = np.asarray(image.data)
     ndim = len(package_geometry["size"])
-    expected_matrix = np.column_stack([
-        np.array(package_geometry["direction"]).reshape(ndim, ndim)
-        @ np.diag(package_geometry["spacing"]),
-        package_geometry["origin"],
-    ])
+    expected_matrix = np.column_stack(
+        [
+            np.array(package_geometry["direction"]).reshape(ndim, ndim)
+            @ np.diag(package_geometry["spacing"]),
+            package_geometry["origin"],
+        ]
+    )
     transformation = image.transformation
     actual_matrix = np.asarray(transformation.to(Affine).matrix)
     checks = {
@@ -34,15 +40,21 @@ def raster_axis_check(image, path, package_geometry):
         ),
     }
 
-    def describe_axes(system):
-        return [{"name": str(getattr(axis, "name", None)),
-                 "type": str(getattr(axis, "type", None)),
-                 "unit": str(getattr(axis, "unit", None)),
-                 "orientation": str(getattr(axis, "orientation", None))}
-                for axis in system.axes]
+    def describe_axes(system: Any) -> list[Record]:
+        """Serialise declared axes without inferring anatomical orientations."""
+        return [
+            {
+                "name": str(getattr(axis, "name", None)),
+                "type": str(getattr(axis, "type", None)),
+                "unit": str(getattr(axis, "unit", None)),
+                "orientation": str(getattr(axis, "orientation", None)),
+            }
+            for axis in system.axes
+        ]
 
     return {
-        "passed": all(checks.values()), "checks": checks,
+        "passed": all(checks.values()),
+        "checks": checks,
         "storage_shape": list(storage.shape),
         "loaded_shape": list(actual_data.shape),
         "package_geometry": package_geometry,
@@ -52,4 +64,3 @@ def raster_axis_check(image, path, package_geometry):
         "loaded_model_axes": describe_axes(transformation.output),
         "scope": "Numeric grid and pixel order; unspecified anatomical orientations are not inferred.",
     }
-
