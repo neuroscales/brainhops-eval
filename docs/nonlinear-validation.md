@@ -34,3 +34,29 @@ artifacts are authoritative for the selected brainhops version. Native build
 omissions (for example Debian elastix's missing Similarity/AffineLog/AffineDTI
 components, SimpleITK's missing 2D logarithmic-scale factory, and ANTs' missing noncubic spline factories) are recorded separately
 in `coverage.json`, with native command logs; they are not claimed as passing tests.
+
+## Completed local comparison
+
+All 1,407 native application cases completed against the commit above. Counts
+include the existing affine baseline. SimpleITK's 498 volumetric and 35 PNG cases
+were evaluated separately after repairing the optional native 2D factory handling;
+the recipe and hosted workflow generate them together. Warning cases pass the
+interior comparison; errors are reader/application exceptions.
+
+| Native backend | Pass | Warning | Fail | Error | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SimpleITK | 96 | 162 | 163 | 112 | 533 |
+| ANTs | 91 | 112 | 179 | 50 | 432 |
+| FSL | 7 | 9 | 26 | 42 | 84 |
+| NiftyReg | 32 | 0 | 87 | 0 | 119 |
+| elastix | 15 | 53 | 37 | 7 | 112 |
+| MRtrix | 16 | 29 | 43 | 39 | 127 |
+
+These are failure-discovery suites, not a green compatibility claim. Coverage
+manifests also include native-supported types beyond current brainhops readers
+(for example quaternion/composed-scale-skew ITK classes); their rejection is
+visible rather than silently omitted. All 30 tooling tests pass independently.
+All six container definitions built successfully in hosted runs; ANTs, FSL,
+NiftyReg, elastix and MRtrix native generation also passed there. The SimpleITK
+2D factory handling fix passed the local complete PNG generation regression;
+its updated hosted run is pending.
