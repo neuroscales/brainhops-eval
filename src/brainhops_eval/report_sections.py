@@ -101,7 +101,7 @@ def statistics_tables(cases: list[Record]) -> str:
     ]
     tables = "".join(_group_table(cases, key, title) for key, title in groups)
     return (
-        '<section class="panel" id="statistics"><h2>Test statistics</h2><p>Whole-run counts, grouped by the recorded transform, output dtype, image interpolation and format. A test appears once in each grouping. Errors have no complete numerical comparison. Maxima are per-case extrema, not pooled registration-accuracy scores; image intensity ranges and dtype tolerances differ.</p>'
+        '<section class="panel" id="statistics"><h2>Test statistics</h2><p>Whole-run counts, grouped by the recorded transform, output dtype, image interpolation and format. A test appears once in each grouping. A dash means the numerical comparison was not reached. Maxima are per-case extrema, not pooled registration-accuracy scores; image intensity ranges and dtype tolerances differ.</p>'
         + tables
         + "</section>"
     )

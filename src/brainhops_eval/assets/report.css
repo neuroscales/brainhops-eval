@@ -10,7 +10,7 @@
   --error: #7634a2;
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+html { scroll-padding-top: 90px; }
 body { margin: 0; }
 main { max-width: 1600px; margin: auto; padding: 20px 32px 48px; }
 a { color: #155eb0; text-underline-offset: 3px; }
