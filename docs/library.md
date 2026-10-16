@@ -24,8 +24,12 @@ formatting, imports and documentation.
   rounding/saturation of the reference; floating comparisons require both the
   maximum-error and normalised-RMSE limits. `comparison.conclude(record)` adds
   explicit diagnostic reasons and determines pass/warning/fail.
+- `statistics` derives software statuses, failure categories and grouped counts
+  from recorded outcomes without changing acceptance decisions.
+- `report_sections` renders the statistical tables, navigation, numerical
+  comparisons and inline montage gallery as independent documented helpers.
 - `report.write_report(output, result)` writes a searchable offline overview,
-  an individual page for every case, local styles/scripts and montages. Error
+  an individual page for every case, local styles/scripts and inline montages. Error
   summaries identify the stage; full tracebacks remain expandable.
 - `site.build_site(reports, output, run_url)` assembles one evaluation run's
   artifacts into a static portal. It refuses mixed brainhops commits or

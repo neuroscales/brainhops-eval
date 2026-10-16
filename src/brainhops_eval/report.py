@@ -7,12 +7,21 @@ import json
 from collections import Counter
 from importlib.resources import files
 from pathlib import Path
-from urllib.parse import quote
 
 import numpy as np
 from PIL import Image, ImageDraw
 
 from .files import relative_file
+from .report_sections import (
+    issue_table,
+    quantitative_table,
+    registration_table,
+    software_navigation,
+    statistics_tables,
+    status_badge,
+    visual_gallery,
+)
+from .statistics import STATUS_LABELS, case_summary, format_number, software_name
 from .types import Array, PathLike, Record
 
 _STATUS_ORDER = {"error": 0, "fail": 1, "warning": 2, "pass": 3}
@@ -90,6 +99,9 @@ def montage(
 
 _BOUNDARY_LABELS = {
     "grid-constant": "Zero-extended grid interpolation",
+    "nearest-clip-half-closed": "Nearest-edge interpolation; closed half-voxel cutoff",
+    "mirror-clip-half-closed": "Mirror interpolation; closed half-voxel cutoff",
+    "nearest-clip-centres-closed": "Nearest-edge interpolation; closed voxel-centre cutoff",
     "constant": "Zero outside voxel centres",
     "nearest": "Extend edge values indefinitely",
     "reflect": "Reflect at the outer edge",
@@ -106,27 +118,9 @@ def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def case_summary(case: Record) -> str:
-    """Return a short reason, including for reports written before schema 2."""
-    if case.get("summary"):
-        return str(case["summary"])
-    if case.get("error"):
-        return case["error"].strip().splitlines()[-1]
-    metrics = case.get("metrics", {})
-    mismatches = metrics.get("interior_mismatch_count", 0)
-    if mismatches:
-        return f"{mismatches:,} interior voxels differ; exact integer equality is required."
-    if case["status"] == "fail":
-        return (
-            f"Interior max error {metrics.get('interior_max_abs', '?')} (limit {metrics.get('atol', '?')}); "
-            f"NRMSE {metrics.get('interior_nrmse', '?')} (limit {metrics.get('nrmse_limit', '?')}). Check axis interpretation too."
-        )
-    return _STATUS_MEANING.get(case["status"], "No comparison result.")
-
-
 def _badge(status: str) -> str:
     """Render a text status badge; colour is never its only meaning."""
-    return f'<span class="badge {_escape(status)}">{_escape(status)}</span>'
+    return status_badge(status)
 
 
 def page_document(title: str, content: str, prefix: str = "") -> str:
@@ -146,7 +140,7 @@ def _stats(cases: list[Record]) -> str:
     counts = Counter(case["status"] for case in cases)
     cards = "".join(
         f'<div class="stat {status}"><strong>{counts[status]:,}</strong>'
-        f"{status.capitalize()}<br><small>{meaning}</small></div>"
+        f"{STATUS_LABELS[status]}<br><small>{meaning}</small></div>"
         for status, meaning in _STATUS_MEANING.items()
     )
     return f'<div class="stats">{cards}</div>'
@@ -165,28 +159,6 @@ def _filters(cases: list[Record]) -> str:
         + '</select></label><label>Transform family<select id="family"><option value="">All families</option>'
         + options
         + '</select></label></div><p class="muted" id="visible-count"></p>'
-    )
-
-
-def _case_table(cases: list[Record]) -> str:
-    """Show failures first with reasons and links to compact individual case pages."""
-    rows = []
-    for case in sorted(cases, key=lambda c: (_STATUS_ORDER.get(c["status"], 4), c["id"])):
-        family = str(case.get("transform_family") or "affine")
-        link = "./" + quote(case["id"], safe="") + "/index.html"
-        maximum = case.get("metrics", {}).get("interior_max_abs")
-        value = f"{maximum:.6g}" if maximum is not None else "—"
-        rows.append(
-            f'<tr data-case-status="{_escape(case["status"])}" data-family="{_escape(family)}">'
-            f'<td>{_badge(case["status"])}</td><td class="case-name"><a href="{link}">{_escape(case["id"])}</a>'
-            f"<br><small>{_escape(family)} · {_escape(case.get('comparison_dtype', 'not produced'))}</small></td>"
-            f'<td class="reason">{_escape(case_summary(case))}</td><td class="numeric">{value}</td></tr>'
-        )
-    return (
-        '<div class="table-scroll"><table><thead><tr><th>Status</th><th>Case / family / dtype</th>'
-        "<th>Why this result?</th><th>Interior max error</th></tr></thead><tbody>"
-        + "".join(rows)
-        + "</tbody></table></div>"
     )
 
 
@@ -264,6 +236,9 @@ def _metadata(case: Record) -> str:
         ("Output / comparison dtype", case.get("comparison_dtype", "not produced")),
         ("Native reference dtype", case.get("reference_output_dtype", "not recorded")),
         ("brainhops boundary", boundary.get("brainhops_bound", "constant")),
+        ("brainhops clip margin", boundary.get("brainhops_clip")),
+        ("Boundary approximation", boundary.get("note", "not recorded")),
+        ("Capability fallback", boundary.get("capability_fallback", "")),
         ("Native boundary convention", boundary.get("native_rule", "not recorded")),
     ]
     return (
@@ -320,7 +295,8 @@ def _write_case(output: Path, case: Record, result: Record) -> None:
             "Absolute differences use their labelled scale. Slices follow reference voxel axes.</figcaption></figure>"
         )
     content = (
-        header
+        _site_menu(result, "../../")
+        + header
         + '<section class="panel">'
         + _metadata(case)
         + _metrics(case)
@@ -331,6 +307,12 @@ def _write_case(output: Path, case: Record, result: Record) -> None:
     (directory / "index.html").write_text(page_document(case["id"], content, "../"))
 
 
+def _site_menu(result: Record, prefix: str) -> str:
+    """Add software navigation only when a report belongs to a published portal."""
+    items = result.get("_site_navigation", [])
+    return software_navigation(items, prefix=prefix, current=result["backend"]) if items else ""
+
+
 def write_report(output: PathLike, result: Record) -> None:
     """Write an offline report index, per-case pages, and local CSS/JS assets."""
     output = Path(output)
@@ -339,13 +321,13 @@ def write_report(output: PathLike, result: Record) -> None:
         _write_case(output, case, result)
     header = (
         '<header><div class="eyebrow">Registration & resampling interoperability</div>'
-        "<h1>brainhops evaluation</h1>"
+        f"<h1>{_escape(software_name(result['backend']))} results</h1>"
         f"<p><strong>{_escape(result['backend'])}</strong> · {_escape(result['interface'])} interface · "
         f"brainhops {_escape(result['brainhops_version'])}</p>"
         f"<p>Requested ref: <code>{_escape(result['brainhops_ref'])}</code><br>"
         f"Resolved commit: <code>{_escape(result['brainhops_sha'])}</code></p>"
-        '<p><a href="results.json">Quantitative results & provenance</a> · '
-        '<a href="registration.json">Native registration quality</a></p></header>'
+        '<p class="downloads"><a href="results.json">Download full results (JSON)</a> · '
+        '<a href="registration.json">Download native registration provenance</a></p></header>'
     )
     policy = (
         '<section class="panel"><h2>How to read this report</h2>'
@@ -358,14 +340,21 @@ def write_report(output: PathLike, result: Record) -> None:
     )
     boundary = _boundary_probe(result)
     content = (
-        header
+        _site_menu(result, "../")
+        + header
+        + '<nav class="section-nav" aria-label="Results sections"><a href="#issues">Failure types</a><a href="#statistics">Statistics</a><a href="#quantitative">Numerical results</a><a href="#qualitative">Images</a></nav>'
         + _stats(result["cases"])
+        + issue_table(result["cases"])
+        + statistics_tables(result["cases"])
         + policy
+        + registration_table(result)
         + _coverage(result)
         + boundary
-        + "<h2>Case results</h2>"
+        + '<section id="quantitative"><h2>Numerical results by case</h2>'
         + _filters(result["cases"])
-        + _case_table(result["cases"])
+        + quantitative_table(result["cases"])
+        + "</section>"
+        + visual_gallery(result["cases"])
     )
     (output / "index.html").write_text(page_document("brainhops evaluation", content))
 
@@ -379,8 +368,9 @@ def copy_assets(output: PathLike) -> None:
 
 
 def _boundary_curve(probe: Record, sample: Record) -> str:
-    """Plot native ramp samples against public constant-padding predictions."""
-    values = sample.get("model_values", {}).get("grid-constant")
+    """Plot actual upstream samples, labelling legacy diagnostic curves explicitly."""
+    measured = sample.get("brainhops", {})
+    values = measured.get("values") or sample.get("model_values", {}).get("grid-constant")
     if not values:
         return ""
     x = np.asarray(probe["sample_x_voxels"])
@@ -393,16 +383,20 @@ def _boundary_curve(probe: Record, sample: Record) -> str:
         py = 185 - np.asarray(series) / upper * 150
         return " ".join(f"{a:.2f},{b:.2f}" for a, b in zip(px, py, strict=True))
 
+    label = (
+        "actual upstream brainhops reslice samples " + _escape(measured.get("options", {}))
+        if measured.get("values")
+        else "legacy grid-zero diagnostic model (not a brainhops measurement)"
+    )
     return (
-        '<svg viewBox="0 0 880 230" role="img" aria-label="Native edge samples versus grid-zero padding">'
+        '<svg viewBox="0 0 880 230" role="img" aria-label="Native edge samples versus brainhops">'
         '<path d="M45 25V185H850" stroke="#8795a6" fill="none"/>'
         f'<polyline points="{points(native)}" fill="none" stroke="#182738" stroke-width="2"/>'
         f'<polyline points="{points(np.asarray(values))}" fill="none" stroke="#1769bf" stroke-width="2" stroke-dasharray="6 4"/>'
         f'<text x="10" y="40" font-size="12">{upper:.3g}</text><text x="20" y="190" font-size="12">0</text>'
         f'<text x="42" y="205" font-size="12">{x.min():g}</text><text x="820" y="205" font-size="12">{x.max():g}</text>'
         '<text x="300" y="225" font-size="13">Source x coordinate in voxels</text></svg>'
-        "<figcaption>Black: native image samples. Dashed blue: grid-zero interpolation "
-        "(brainhops constant). This is an independent float-ramp probe.</figcaption>"
+        f"<figcaption>Black: native image samples. Dashed blue: {label}. This is an independent float-ramp probe.</figcaption>"
     )
 
 
@@ -413,14 +407,17 @@ def _boundary_probe(result: Record) -> str:
         return ""
     rows, plots = [], []
     for sample in probe["interpolation"]:
-        error = sample["model_errors"]["grid-constant"]["max_abs"]
+        measurement = sample.get("brainhops", {})
+        error = measurement.get("max_abs")
+        observed = f"{error:.6g}" if error is not None else "Not measured"
+        options = measurement.get("error") or measurement.get("options", "Legacy report")
         matches = (
             "; ".join(_BOUNDARY_LABELS.get(name, name) for name in sample["matching_models"])
             or "No tested rule matched"
         )
         rows.append(
             f"<tr><td>{sample['degree']}</td><td>{_escape(matches)}</td>"
-            f'<td class="numeric">{error:.6g}</td><td>{sample.get("measured_far_background", "not recorded")}</td></tr>'
+            f'<td class="numeric">{observed}</td><td>{format_number(measurement.get("rmse"))}</td><td>{format_number(measurement.get("mismatch_count"))}</td><td>{_escape(options)}</td><td>{sample.get("measured_far_background", "not recorded")}</td></tr>'
         )
         plots.append(
             f"<h3>Interpolation degree {sample['degree']}</h3>" + _boundary_curve(probe, sample)
@@ -430,7 +427,7 @@ def _boundary_probe(result: Record) -> str:
         "<p>These probes distinguish padding, half-voxel clipping/clamping, and estimated background. "
         "They do not establish nonlinear transform-field support. A rule that lacks a public brainhops "
         "equivalent remains a documented boundary warning; loaded images are never patched.</p>"
-        "<table><tr><th>Degree</th><th>Matching native rule</th><th>Max difference from constant</th>"
+        "<table><tr><th>Degree</th><th>Matching native rule</th><th>Measured brainhops max error</th><th>RMSE</th><th>Mismatched samples</th><th>Public reslice options / error</th>"
         "<th>Far-background sample</th></tr>"
         + "".join(rows)
         + "</table>"

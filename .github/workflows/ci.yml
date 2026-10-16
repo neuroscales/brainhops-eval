@@ -33,3 +33,35 @@ jobs:
       packages: all
       interface: python
 
+  report-preview:
+    needs: interoperability
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install .
+      - name: Collect all available software reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: report-*
+          path: work/reports
+      - name: Collect the requested software list
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: evaluation-context
+          path: work/reports/context
+      - name: Build the complete portal preview
+        env:
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: brainhops-eval site --reports work/reports --output work/site --run-url "$RUN_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-preview
+          path: work/site
+          retention-days: 90

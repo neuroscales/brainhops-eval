@@ -17,15 +17,53 @@ _NATIVE_RULES = {
 }
 
 
-def policy_for(backend: str, case: Record) -> Record:
-    """Return the public reslice option and the native convention being tested."""
+def policy_for(backend: str, case: Record, *, supports_clip: bool = False) -> Record:
+    """Select one fixed software/interpolator policy, independent of case errors.
+
+    Old brainhops versions retain a declared fallback when they lack `clip`.
+    FLIRT retains grid-zero: a ramp-only optimum (mirror) worsens
+    anatomical edges and does not reproduce its estimated background.
+    """
     native_rule = _NATIVE_RULES.get(backend, "Native image boundary rule is not documented.")
-    if backend == "fsl" and case.get("transform_hint") == "fnirt":
-        native_rule = "applywarp with default padding; the FLIRT affine edge probe does not establish nonlinear-field validity."
+    bound, clip = "constant", None
+    note = "Grid-zero interpolation matches the NiftyReg linear edge probe."
+    if backend in {"simpleitk", "ants", "elastix", "mrtrix"}:
+        note = (
+            "Nearest-neighbour grid-zero sampling retains the closest measured endpoint convention."
+        )
+        if case.get("degree", 1) > 0:
+            bound = "mirror" if backend == "elastix" else "nearest"
+            clip = 0.5
+            note = "Clamped/mirrored interpolation inside the half-voxel extent; closed clip endpoints can differ from native open/half-open endpoints."
+    if backend == "fsl":
+        note = "Retain grid-zero: mirror improves the synthetic ramp but worsens anatomical edges. FLIRT estimated exterior background remains unmatched."
+        if case.get("transform_hint") == "fnirt":
+            bound = "constant"
+            native_rule = "applywarp with default padding; the FLIRT affine edge probe does not establish nonlinear-field validity."
+            note = "Retain grid-zero for applywarp; no FLIRT-derived clipping or background rule is assumed."
+    requested = dict(
+        bound=case.get("brainhops_bound", bound), clip=case.get("brainhops_clip", clip)
+    )
+    actual = dict(requested)
+    fallback = ""
+    if actual["clip"] is not None and not supports_clip:
+        actual = dict(bound="constant", clip=None)
+        fallback = "Selected brainhops has no public clip argument; use the legacy grid-zero approximation."
     return dict(
-        brainhops_bound=case.get("brainhops_bound", "constant"),
+        brainhops_bound=actual["bound"],
+        brainhops_clip=actual["clip"],
+        requested=requested,
+        capability_fallback=fallback,
         native_rule=native_rule,
         scope="Image interpolation; transform-field extension is controlled by its reader.",
-        selection="Declared recipe policy, not selected per case to minimise error.",
-        note="brainhops constant means grid-zero padding. Half-voxel clipping/clamping may have no exact public equivalent.",
+        selection="Fixed by software/interpolator and independent native probes; never fitted to individual anatomical cases.",
+        note=note,
     )
+
+
+def reslice_options(policy: Record) -> Record:
+    """Build native reslice kwargs without passing new options to old versions."""
+    options = dict(bound=policy["brainhops_bound"])
+    if policy.get("brainhops_clip") is not None:
+        options["clip"] = policy["brainhops_clip"]
+    return options
