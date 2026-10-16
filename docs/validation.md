@@ -135,3 +135,18 @@ lossless; it does not interpolate data or modify brainhops-loaded objects.
 These are local native-runtime results, not claims that all four new SIF
 builds or numerical CI jobs pass. CI builds and runs the separate definitions,
 and always uploads quantitative results and shared-window montages.
+
+
+## Boundary warnings and affine-reader investigation (2026-10-16)
+
+Boundary-only discrepancies now have nonblocking warning status in JSON/HTML
+and Actions summaries. Interior acceptance thresholds are unchanged. Boundary
+values were already excluded from the earlier pass/fail calculation; sparse
+integer differences inside the mask remain failures.
+
+The NiftyReg/MRtrix root cause is now isolated: conversion of metadata-backed
+reader objects to generic Affine loses their matrix, and separable factorisation
+treats the missing matrix as identity. See the [investigation and minimal
+reproducer](affine-reader-investigation.md), including a candidate upstream patch
+validated in a separate worktree and the independent NiftyReg truncation issue.
+The evaluator continues to test the unmodified selected brainhops version.

@@ -217,8 +217,8 @@ image panels use the converted reference. Reports record reference, in-memory,
 stored, and comparison dtypes. Near half-integer boundaries, small interpolation
 or reference-storage differences can still produce a one-unit mismatch; these
 remain visible failures. A native
-coverage mask excludes the source interpolation edge; boundary errors are
-reported separately. Less than 5% interior coverage, non-finite data, wrong
+coverage mask excludes the source interpolation edge. Boundary-only differences
+produce nonblocking `warning` status; interior discrepancies still fail. Less than 5% interior coverage, non-finite data, wrong
 output grids, and corrupted fixtures fail validation. Each fixture variant declares a display window shared by all anatomy and
 checkerboard panels, and by all packages testing that variant. Integer anatomy
 uses at least 64 occupied bins without hidden NIfTI slope/intercept scaling;
@@ -233,7 +233,7 @@ contract test and may expose CLI direction or integer-quantization differences.
 PNG uses direct application to `io.images.load` results in either mode;
 each result records the interface it actually exercised.
 No version-specific inversion is silently substituted. See
-[validation notes](docs/validation.md) for observed behavior.
+[validation notes](docs/validation.md) and the [NiftyReg/MRtrix root-cause investigation](docs/affine-reader-investigation.md) for observed behavior.
 
 ## Extending the suite
 

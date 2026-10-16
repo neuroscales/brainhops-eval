@@ -1,0 +1,72 @@
+diff --git a/src/brainhops/datamodel/_transformations/compute/converters.py b/src/brainhops/datamodel/_transformations/compute/converters.py
+index f937fe7..af5eb12 100644
+--- a/src/brainhops/datamodel/_transformations/compute/converters.py
++++ b/src/brainhops/datamodel/_transformations/compute/converters.py
+@@ -1,7 +1,7 @@
+ import numpy as np
+ import typing_extensions as tx
+ 
+-from brainhops._core.magic import replace, stores
++from brainhops._core.magic import replace
+ from brainhops._core.typing import ArrayProtocol
+ from brainhops.backends import get_array_backend
+ from brainhops.datamodel._sugar import get_axes
+@@ -110,12 +110,12 @@ def _convert_withlog(
+     # a `log` flag have no tangent, so for them nothing is transferred.
+     out_log = kwargs.get("log", _is_tangent(cls))
+     crossing = getattr(t, "log", False) != out_log
+-    # Some transformations derive their data instead of storing it, such as
+-    # a reader that parses its matrix from a file or a grid that builds its
+-    # coordinates from a shape. Such a transformation does not keep its data
+-    # under the name that the rebuild reads, so a class that is not one of
+-    # its own receives the map through the `_fallback` field instead.
+-    derived = not stores(type(t), "_data") and not issubclass(cls, type(t))
++    # A format reader may derive its public data from metadata while its
++    # inherited _data remains None (only an explicitly assigned value is
++    # stored there). Field presence alone therefore cannot tell whether
++    # replace() would preserve the map. When leaving the concrete class,
++    # transfer the public parameter view rather than its storage slot.
++    derived = not issubclass(cls, type(t))
+     if crossing or derived:
+         fields = set(cls.data_fields) | set(cls.derived_fields)
+         if not (fields & set(kwargs)):
+diff --git a/tests/test_io_derived_affine_reslice.py b/tests/test_io_derived_affine_reslice.py
+new file mode 100644
+index 0000000..fbda2df
+--- /dev/null
++++ b/tests/test_io_derived_affine_reslice.py
+@@ -0,0 +1,34 @@
++"""Loaded reader maps must survive conversion and separable reslicing."""
++
++import numpy as np
++import pytest
++
++import brainhops.io as io
++from brainhops.backends import backend
++from brainhops.datamodel.transformations import Affine
++
++
++@pytest.mark.parametrize("hint", ["niftyreg.aladin", "mrtrix.linear"])
++def test_loaded_affine_survives_conversion_and_direct_image_application(tmp_path, hint):
++    nib = pytest.importorskip("nibabel")
++    indices = np.indices((7, 8, 9), dtype=np.float32)
++    values = 100 * indices[0] + 10 * indices[1] + indices[2]
++    geometry = np.diag([1.25, 1.5, 2., 1.])
++    for name in ("moving", "reference"):
++        image = nib.Nifti1Image(values, geometry)
++        image.set_sform(geometry, code=1)
++        image.set_qform(geometry, code=1)
++        nib.save(image, tmp_path / f"{name}.nii.gz")
++    pull = np.eye(4)
++    pull[0, 3] = 1.25
++    path = tmp_path / "transform.txt"
++    np.savetxt(path, pull)
++    with backend("numpy"):
++        source = io.images.load(tmp_path / "moving.nii.gz")
++        reference = io.images.load(tmp_path / "reference.nii.gz")
++        transform = io.load(path, hint=hint)
++        # Test application before the diagnostic conversion, so a cached
++        # conversion cannot hide a failure in the original loaded path.
++        actual = source(transform).reslice(reference, degree=1, bound="constant")
++        np.testing.assert_allclose(actual.data[:-1, 1:-1, 1:-1], values[1:, 1:-1, 1:-1])
++        np.testing.assert_allclose(transform.to(Affine).matrix, pull[:3])
