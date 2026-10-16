@@ -26,6 +26,11 @@ def _predictions(values: np.ndarray, coords: np.ndarray, degree: int) -> dict[st
     models['half-voxel-mirror'] = np.where(inside, models['mirror'], 0)
     strict = np.all((coords > -.5) & (coords < shape - .5), axis=0)
     models['strict-half-voxel-clamp'] = np.where(strict, models['nearest'], 0)
+    closed_half = np.all((coords >= -.5) & (coords <= shape - .5), axis=0)
+    closed_centres = np.all((coords >= 0) & (coords <= shape - 1), axis=0)
+    models['nearest-clip-half-closed'] = np.where(closed_half, models['nearest'], 0)
+    models['mirror-clip-half-closed'] = np.where(closed_half, models['mirror'], 0)
+    models['nearest-clip-centres-closed'] = np.where(closed_centres, models['nearest'], 0)
     return models
 
 

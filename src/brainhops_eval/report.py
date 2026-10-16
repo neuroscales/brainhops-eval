@@ -90,6 +90,9 @@ def montage(
 
 _BOUNDARY_LABELS = {
     "grid-constant": "Zero-extended grid interpolation",
+    "nearest-clip-half-closed": "Nearest-edge interpolation; closed half-voxel cutoff",
+    "mirror-clip-half-closed": "Mirror interpolation; closed half-voxel cutoff",
+    "nearest-clip-centres-closed": "Nearest-edge interpolation; closed voxel-centre cutoff",
     "constant": "Zero outside voxel centres",
     "nearest": "Extend edge values indefinitely",
     "reflect": "Reflect at the outer edge",
@@ -264,6 +267,9 @@ def _metadata(case: Record) -> str:
         ("Output / comparison dtype", case.get("comparison_dtype", "not produced")),
         ("Native reference dtype", case.get("reference_output_dtype", "not recorded")),
         ("brainhops boundary", boundary.get("brainhops_bound", "constant")),
+        ("brainhops clip margin", boundary.get("brainhops_clip")),
+        ("Boundary approximation", boundary.get("note", "not recorded")),
+        ("Capability fallback", boundary.get("capability_fallback", "")),
         ("Native boundary convention", boundary.get("native_rule", "not recorded")),
     ]
     return (

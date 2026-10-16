@@ -36,10 +36,60 @@ match. The recipe keeps its native convention explicit. FNIRT uses **applywarp**
 which is a distinct image sampler; the affine FLIRT probe must not be treated
 as evidence about nonlinear-field extension or all applywarp settings.
 
-Consequently, selecting an existing boundary option cannot remove every edge
-warning. The evaluator retains the declared `constant` policy, records the
-native rule and its public-API limitation, and reports boundary-only differences
-as warnings. It never chooses a mode independently for each anatomical case,
-changes the interior mask to conceal errors, or modifies loaded image objects.
-Transform-field interpolation/domain extension and integer quantisation can
-produce additional discrepancies and remain separate diagnostics.
+## Declared closest policies
+
+The evaluator now selects a fixed policy by package and image interpolation
+order. It does not search for the best mode on individual anatomical outputs.
+
+| Sampler | Image interpolation | `bound` | `clip` |
+| --- | --- | --- | --- |
+| ITK / ANTs | Linear | `nearest` | `0.5` |
+| transformix | Linear B-spline | `mirror` | `0.5` |
+| MRtrix | Linear | `nearest` | `0.5` |
+| The above four | Nearest neighbour | `constant` | `None` |
+| NiftyReg | Linear / nearest neighbour | `constant` | `None` |
+| FLIRT | Linear / nearest neighbour | `mirror` | `None` |
+| FNIRT applywarp | Linear / nearest neighbour | `constant` | `None` |
+
+Clipping is proposed in [brainhops PR #485](https://github.com/neuroscales/brainhops/pull/485).
+The evaluator detects the public `reslice` signature. A selected version without
+`clip` uses the legacy grid-zero approximation; the report records both the
+requested policy and this capability fallback. No patches are applied to the
+version under evaluation. Native reader objects are still passed directly to
+`source(pull).reslice(reference, ...)`.
+
+`clip` uses a **closed** interval `[-lower, n - 1 + upper]`. On the independent
+float ramp, clipped nearest/mirror interpolation reproduces every non-endpoint
+linear sample from ITK/ANTs, transformix and MRtrix exactly. The native ITK and
+transformix intervals exclude their upper endpoint; MRtrix excludes both.
+The evaluator preserves these discrepancies rather than nudging coordinates,
+adding an epsilon, or altering the interior mask. On a probe that deliberately
+samples endpoints, RMSE therefore need not decrease even though all other edge
+samples now match. Nearest-neighbour grid-zero already matches the ITK/ANTs/
+transformix probe, so those policies stay unchanged; MRtrix retains one endpoint
+mismatch.
+
+FLIRT's `mirror` policy is the best existing named mode **on the independent
+ramp**, reducing its linear RMSE from 9.58453 to 6.65814 and nearest-neighbour
+RMSE from 11.85848 to 5.86114. This is an approximation, not FLIRT's true boundary
+model, and is not guaranteed to improve every anatomical image. Neither
+zero-valued clipping nor mirror extrapolation reproduces its estimated exterior
+background. FNIRT uses a distinct sampler and retains its separate policy.
+
+Boundary-only discrepancies remain warnings. Integer quantisation and nonlinear
+transform-field interpolation/domain extension can cause additional differences
+and remain separate diagnostics.
+
+## Focused anatomical validation
+
+Using brainhops clipping commit `0abd3dcda96bc0f6cec37a25eec0e5417dee33c9`
+against unchanged native fixture outputs, the five-case SimpleITK subset lost
+all five boundary warnings. Integer boundary maximum errors of 24–38 became
+zero; the downsampled float case fell from 3.09531 to 0.000188112.
+
+The five-case elastix subset also lost all five boundary warnings. Integer
+boundary maximum errors of 35–40 became zero; the downsampled float case fell
+from 66.1836 to 0.00019455. Its two one-voxel interior integer disagreements
+remain failures. Every case retained exactly the previous interior maximum
+error and integer mismatch count. These subsets test the boundary policy;
+they are not a claim that the full interoperability matrix now passes.

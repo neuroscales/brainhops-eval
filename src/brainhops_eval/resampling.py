@@ -17,6 +17,7 @@ import nibabel as nib
 import numpy as np
 
 from .axes import raster_axis_check
+from .boundaries import reslice_options
 from .files import relative_file
 from .types import Array, PathLike, Record
 
@@ -122,7 +123,7 @@ def _apply_python(
     pull = load_transform(bio, fixtures, case)
     record["stage"] = "apply transform and reslice"
     resliced = source(pull).reslice(
-        reference, degree=case["degree"], bound=record["boundary_policy"]["brainhops_bound"]
+        reference, degree=case["degree"], **reslice_options(record["boundary_policy"])
     )
     return resliced, source, reference
 
@@ -185,6 +186,8 @@ def cli_nifti(
         "--bound",
         str(record["boundary_policy"]["brainhops_bound"]),
     ]
+    if record["boundary_policy"].get("brainhops_clip") is not None:
+        args += ["--clip", repr(record["boundary_policy"]["brainhops_clip"])]
     process = subprocess.run(
         args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
