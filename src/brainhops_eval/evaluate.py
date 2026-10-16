@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import inspect
 import os
 import platform
 import traceback
@@ -90,7 +91,9 @@ def _expectation(paths: CasePaths, case: Record, record: Record) -> tuple[np.nda
     return expected, mask
 
 
-def _initial_record(case: Record, backend: str, interface: str) -> Record:
+def _initial_record(
+    case: Record, backend: str, interface: str, *, supports_clip: bool = False
+) -> Record:
     """Describe the exact input transform and requested application settings."""
     return dict(
         id=case["id"],
@@ -105,14 +108,19 @@ def _initial_record(case: Record, backend: str, interface: str) -> Record:
         transform_family=case.get("transform_family", "affine"),
         transform_representation=case.get("transform_representation"),
         degree=case["degree"],
-        boundary_policy=policy_for(backend, case),
+        boundary_policy=policy_for(backend, case, supports_clip=supports_clip),
         interface=interface if case["kind"] == "nifti" else "python",
     )
 
 
 def _case(bio: Any, fixtures: Path, output: Path, case: Record, context: Record) -> Record:
     """Run one case, retaining exceptions and a concise reason in the report."""
-    record = _initial_record(case, context["backend"], context["interface"])
+    record = _initial_record(
+        case,
+        context["backend"],
+        context["interface"],
+        supports_clip=context.get("reslice_capabilities", {}).get("clip", False),
+    )
     directory = relative_file(output, case["id"])
     directory.mkdir()
     try:
@@ -183,6 +191,7 @@ def evaluate(
     """
     import brainhops.io as bio
     from brainhops.backends import set_backend
+    from brainhops.datamodel.images import SingleScaleImage
 
     set_backend("numpy")
     fixtures, output = Path(fixtures).resolve(), Path(output).resolve()
@@ -192,6 +201,9 @@ def evaluate(
     output.mkdir(parents=True, exist_ok=True)
     manifest = read_json(fixtures / "cases.json")
     result = _provenance(fixtures, manifest, brainhops_ref, brainhops_sha, interface)
+    result["reslice_capabilities"] = dict(
+        clip="clip" in inspect.signature(SingleScaleImage.reslice).parameters
+    )
     for case in manifest["cases"]:
         record = _case(bio, fixtures, output, case, result)
         result["cases"].append(record)
