@@ -48,7 +48,7 @@ order. It does not search for the best mode on individual anatomical outputs.
 | MRtrix | Linear | `nearest` | `0.5` |
 | The above four | Nearest neighbour | `constant` | `None` |
 | NiftyReg | Linear / nearest neighbour | `constant` | `None` |
-| FLIRT | Linear / nearest neighbour | `mirror` | `None` |
+| FLIRT | Linear / nearest neighbour | `constant` (approximate) | `None` |
 | FNIRT applywarp | Linear / nearest neighbour | `constant` | `None` |
 
 Clipping is proposed in [brainhops PR #485](https://github.com/neuroscales/brainhops/pull/485).
@@ -69,12 +69,14 @@ samples now match. Nearest-neighbour grid-zero already matches the ITK/ANTs/
 transformix probe, so those policies stay unchanged; MRtrix retains one endpoint
 mismatch.
 
-FLIRT's `mirror` policy is the best existing named mode **on the independent
-ramp**, reducing its linear RMSE from 9.58453 to 6.65814 and nearest-neighbour
-RMSE from 11.85848 to 5.86114. This is an approximation, not FLIRT's true boundary
-model, and is not guaranteed to improve every anatomical image. Neither
-zero-valued clipping nor mirror extrapolation reproduces its estimated exterior
-background. FNIRT uses a distinct sampler and retains its separate policy.
+FLIRT has no exact match in these options. Mirror extrapolation reduces the
+synthetic ramp RMSE (linear 9.58453 to 6.65814), but validation on four unchanged
+anatomical cases showed boundary NRMSE rising from 0.0058–0.0101 to
+0.0123–0.0227, with interior metrics unchanged. A ramp-only numerical optimum
+therefore does not establish the right native rule. FLIRT retains the fixed
+grid-zero approximation until its estimated background and centre-FOV cutoff
+can be represented. It does not switch modes on individual case results.
+FNIRT uses a distinct sampler and retains its separate policy.
 
 Boundary-only discrepancies remain warnings. Integer quantisation and nonlinear
 transform-field interpolation/domain extension can cause additional differences
