@@ -1,17 +1,8 @@
 diff --git a/src/brainhops/datamodel/_transformations/compute/converters.py b/src/brainhops/datamodel/_transformations/compute/converters.py
-index f937fe76..24f53142 100644
+index f937fe76..83e1ee25 100644
 --- a/src/brainhops/datamodel/_transformations/compute/converters.py
 +++ b/src/brainhops/datamodel/_transformations/compute/converters.py
-@@ -1,7 +1,7 @@
- import numpy as np
- import typing_extensions as tx
- 
--from brainhops._core.magic import replace, stores
-+from brainhops._core.magic import replace
- from brainhops._core.typing import ArrayProtocol
- from brainhops.backends import get_array_backend
- from brainhops.datamodel._sugar import get_axes
-@@ -110,13 +110,13 @@ def _convert_withlog(
+@@ -110,16 +110,18 @@ def _convert_withlog(
      # a `log` flag have no tangent, so for them nothing is transferred.
      out_log = kwargs.get("log", _is_tangent(cls))
      crossing = getattr(t, "log", False) != out_log
@@ -22,22 +13,28 @@ index f937fe76..24f53142 100644
 -    # its own receives the map through the `_fallback` field instead.
 -    derived = not stores(type(t), "_data") and not issubclass(cls, type(t))
 -    if crossing or derived:
-+    # A format reader may derive its public data from metadata while its
-+    # inherited _data remains None (only an explicitly assigned value is
-+    # stored there). Field presence alone therefore cannot tell whether
-+    # replace() would preserve the map. When leaving the concrete class,
-+    # transfer the public parameter view rather than its storage slot.
++    # Keep stored parameters in their existing encoding when only the class
++    # changes: reading matrix/field could exponentiate a tangent or integrate
++    # a velocity. Readers with an empty inherited storage slot must transfer
++    # their public data, which is decoded from metadata instead.
 +    changes_class = not issubclass(cls, type(t))
 +    if crossing or changes_class:
          fields = set(cls.data_fields) | set(cls.derived_fields)
          if not (fields & set(kwargs)):
-             kwargs.setdefault(_fallback, getattr(t, _fallback))
+-            kwargs.setdefault(_fallback, getattr(t, _fallback))
++            if crossing or not stores(type(t), "_data"):
++                kwargs[_fallback] = getattr(t, _fallback)
++            elif getattr(t, "_data", None) is None:
++                kwargs["data"] = t.data
+         if crossing:
+             # The rebuild would otherwise carry the flag over from `t`, but
+             # changing the encoding is the purpose of this conversion, so
 diff --git a/tests/test_io_derived_affine_reslice.py b/tests/test_io_derived_affine_reslice.py
 new file mode 100644
-index 00000000..e21473fc
+index 00000000..5b535fc5
 --- /dev/null
 +++ b/tests/test_io_derived_affine_reslice.py
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,60 @@
 +"""Loaded reader maps must survive conversion and separable reslicing."""
 +
 +from pathlib import Path
@@ -80,3 +77,92 @@ index 00000000..e21473fc
 +            actual.data[:-1, 1:-1, 1:-1], values[1:, 1:-1, 1:-1]
 +        )
 +        np.testing.assert_allclose(transform.to(Affine).matrix, pull[:3])
++
++
++@pytest.mark.parametrize("hint", ["niftyreg.aladin", "mrtrix.linear"])
++def test_noop_and_explicit_data_override_do_not_decode_reader(
++    tmp_path: Path, hint: str, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    path = tmp_path / "transform.txt"
++    np.savetxt(path, np.eye(4))
++    source = io.load(path, hint=hint)
++    replacement = np.eye(4)[:3]
++
++    def forbid_decode(*args, **kwargs) -> None:
++        pytest.fail("This conversion must not decode the source reader")
++
++    monkeypatch.setattr(type(source), "data", property(forbid_decode))
++    assert source.to() is source
++    result = source.to(Affine, data=replacement)
++    np.testing.assert_array_equal(result.matrix, replacement)
+diff --git a/tests/test_io_mrtrix_warps.py b/tests/test_io_mrtrix_warps.py
+index 44075d53..48442a56 100644
+--- a/tests/test_io_mrtrix_warps.py
++++ b/tests/test_io_mrtrix_warps.py
+@@ -540,14 +540,6 @@ def test_nifti_displacements_are_written_as_mrtrix_warps(tmp_path) -> None:  # n
+     )
+ 
+ 
+-@pytest.mark.xfail(
+-    strict=True,
+-    reason=(
+-        "A NIfTI affine whose matrix lives in its header converts to a "
+-        "plain Affine without its matrix, so the grid of an SPM field is "
+-        "lost when its chain is split for another format."
+-    ),
+-)
+ def test_spm_coordinates_are_written_as_mrtrix_warps(tmp_path) -> None:  # noqa: ANN001
+     # VECTOR with the intent name of SPM: coordinates
+     path = _nifti_field(tmp_path / "y_c.nii.gz", 1007, "Mapping")
+diff --git a/tests/test_transformation_log.py b/tests/test_transformation_log.py
+index 934eb2e2..010b2086 100644
+--- a/tests/test_transformation_log.py
++++ b/tests/test_transformation_log.py
+@@ -828,3 +828,47 @@ def test_a_chain_that_does_not_reduce_is_refused_before_computing() -> None:
+             for log in (True, False):
+                 with pytest.raises(ConversionError, match="not composed"):
+                     chain.to(log=log)
++
++
++@pytest.mark.parametrize(
++    "source_cls,target_cls,tangent",
++    [
++        (RotationExponential, LinearExponential, SKEW),
++        (Rotation, Linear, np.eye(3)),
++    ],
++)
++def test_same_encoding_class_conversion_does_not_evaluate_map(
++    source_cls: type,
++    target_cls: type,
++    tangent: np.ndarray,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    source = source_cls(data=tangent)
++
++    def forbid_evaluation(*args, **kwargs) -> None:
++        pytest.fail("Class-only conversion must preserve the stored tangent")
++
++    monkeypatch.setattr(_tangents, "expm", forbid_evaluation)
++    monkeypatch.setattr(_tangents, "logm", forbid_evaluation)
++    monkeypatch.setattr(source_cls, "matrix", property(forbid_evaluation))
++    result = source.to(target_cls)
++    assert isinstance(result, target_cls)
++    assert result.data is source.data
++    assert result.log == source.log
++
++
++def test_velocity_class_conversion_does_not_integrate_field(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    class VelocitySubclass(StationaryVelocityField):
++        pass
++
++    source = VelocitySubclass(data=np.zeros((3, 4, 2)))
++
++    def forbid_evaluation(*args, **kwargs) -> None:
++        pytest.fail("Class-only conversion must preserve the stored velocity")
++
++    monkeypatch.setattr(VelocitySubclass, "field", property(forbid_evaluation))
++    result = source.to(StationaryVelocityField)
++    assert result.data is source.data
++    assert result.log

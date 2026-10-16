@@ -60,9 +60,9 @@ not a tooling test that assumes the current bug must persist.
 ## Candidate upstream correction
 
 [The reviewable patch](patches/brainhops-derived-affine-conversion.patch)
-transfers the public parameter view when converting away from the concrete
-source class, rather than inferring readable data from a storage-field
-presence check. It also adds two regression cases that apply the transform
+recovers public encoded `data` when the inherited storage slot is empty.
+Existing stored parameters keep their original encoding; only an actual
+encoding change reads the decoded map, as before. It also adds two regression cases that apply the transform
 to directly loaded NIfTI images **before** checking generic conversion.
 
 The fix is open as [brainhops PR #473](https://github.com/neuroscales/brainhops/pull/473),
@@ -104,3 +104,22 @@ Boundary values were already excluded from acceptance before this change.
 For example, the prior FSL run's 10 failing cases had 1–44 interior integer
 mismatches each; elastix had four failing cases with 1–4 interior mismatches.
 The much larger boundary errors visible in montages did not cause those verdicts.
+
+
+## Laziness review of the upstream fix
+
+The initial patch read the decoded map for every class change. For example,
+`RotationExponential.to(LinearExponential)` unnecessarily called `expm` and
+`logm` once each and replaced the stored tangent with a recomputed array.
+
+PR #473 now preserves existing stored parameters. Only a reader with empty
+inherited storage supplies its public encoded data; genuine encoding changes
+and transformations without a storage field retain the prior conversion path.
+The same instrumented conversion now calls neither `expm` nor `logm` and shares
+the original tangent array. Regression tests forbid matrix reads and
+exponential/logarithm calls, forbid velocity integration on class-only
+conversion, and forbid reader decoding for no-op/explicit-data conversions.
+
+Full CI exposed one strict expected-failure test that the fix also repairs:
+SPM coordinate fields exported as MRtrix warps. Its obsolete `xfail` marker was
+removed; the test's numerical assertions remain unchanged.
