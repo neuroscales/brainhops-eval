@@ -89,10 +89,15 @@ def issue_codes(case: Record) -> set[str]:
         ("interior_nrmse", "nrmse_limit", "normalised-rmse"),
     ]:
         threshold = metrics.get(limit)
-        if not metrics.get("interior_mismatch_count") and threshold is not None and metrics.get(key, 0) > threshold:
+        if (
+            not metrics.get("interior_mismatch_count")
+            and threshold is not None
+            and metrics.get(key, 0) > threshold
+        ):
             codes.add(code)
     if metrics.get("boundary_warning") or (
-        case["status"] == "warning" and not case.get("diagnostics")
+        case["status"] == "warning"
+        and not case.get("diagnostics")
         and not metrics.get("integer_warning")
     ):
         codes.add("boundary-difference")

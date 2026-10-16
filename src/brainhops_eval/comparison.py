@@ -149,7 +149,11 @@ def explain(record: Record) -> list[Record]:
                 limit=metrics["atol"],
             )
         )
-    if not mismatches and metrics["nrmse_limit"] is not None and metrics["interior_nrmse"] > metrics["nrmse_limit"]:
+    if (
+        not mismatches
+        and metrics["nrmse_limit"] is not None
+        and metrics["interior_nrmse"] > metrics["nrmse_limit"]
+    ):
         reasons.append(
             dict(
                 code="normalised-rmse",
@@ -183,15 +187,19 @@ def explain(record: Record) -> list[Record]:
 def conclude(record: Record) -> None:
     """Explain failures and nonblocking boundary or integer quantization warnings."""
     record["diagnostics"] = explain(record)
-    failures = [reason for reason in record["diagnostics"] if reason["scope"] != "boundary" and reason.get("severity") != "warning"]
-    status = (
-        "fail" if failures else ("warning" if record["diagnostics"] else "pass")
-    )
+    failures = [
+        reason
+        for reason in record["diagnostics"]
+        if reason["scope"] != "boundary" and reason.get("severity") != "warning"
+    ]
+    status = "fail" if failures else ("warning" if record["diagnostics"] else "pass")
     record["status"] = status
     record["summary"] = (
         " ".join(reason["summary"] for reason in record["diagnostics"])
         or "Interior and boundary comparisons satisfy all thresholds."
     )
     record.setdefault("warnings", []).extend(
-        reason["summary"] for reason in record["diagnostics"] if reason["scope"] == "boundary" or reason.get("severity") == "warning"
+        reason["summary"]
+        for reason in record["diagnostics"]
+        if reason["scope"] == "boundary" or reason.get("severity") == "warning"
     )
