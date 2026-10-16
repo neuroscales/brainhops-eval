@@ -15,6 +15,7 @@ import nibabel as nib
 import numpy as np
 
 from .boundaries import policy_for
+from .boundary_probes import evaluate_boundary_probes
 from .comparison import assess, compare, conclude, reference_in_output_dtype
 from .files import digest, read_json, relative_file, verify, write_json
 from .report import markdown_summary, montage, write_report
@@ -205,6 +206,8 @@ def evaluate(
     result["reslice_capabilities"] = dict(
         clip="clip" in inspect.signature(SingleScaleImage.reslice).parameters
     )
+    if result.get("boundary_probes"):
+        result["boundary_probes"] = evaluate_boundary_probes(bio, fixtures, result)
     for case in manifest["cases"]:
         record = _case(bio, fixtures, output, case, result)
         result["cases"].append(record)

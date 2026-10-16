@@ -21,7 +21,7 @@ from .report_sections import (
     status_badge,
     visual_gallery,
 )
-from .statistics import STATUS_LABELS, case_summary, software_name
+from .statistics import STATUS_LABELS, case_summary, format_number, software_name
 from .types import Array, PathLike, Record
 
 _STATUS_ORDER = {"error": 0, "fail": 1, "warning": 2, "pass": 3}
@@ -368,8 +368,9 @@ def copy_assets(output: PathLike) -> None:
 
 
 def _boundary_curve(probe: Record, sample: Record) -> str:
-    """Plot native ramp samples against public constant-padding predictions."""
-    values = sample.get("model_values", {}).get("grid-constant")
+    """Plot actual upstream samples, labelling legacy diagnostic curves explicitly."""
+    measured = sample.get("brainhops", {})
+    values = measured.get("values") or sample.get("model_values", {}).get("grid-constant")
     if not values:
         return ""
     x = np.asarray(probe["sample_x_voxels"])
@@ -382,16 +383,20 @@ def _boundary_curve(probe: Record, sample: Record) -> str:
         py = 185 - np.asarray(series) / upper * 150
         return " ".join(f"{a:.2f},{b:.2f}" for a, b in zip(px, py, strict=True))
 
+    label = (
+        "actual upstream brainhops reslice samples " + _escape(measured.get("options", {}))
+        if measured.get("values")
+        else "legacy grid-zero diagnostic model (not a brainhops measurement)"
+    )
     return (
-        '<svg viewBox="0 0 880 230" role="img" aria-label="Native edge samples versus grid-zero padding">'
+        '<svg viewBox="0 0 880 230" role="img" aria-label="Native edge samples versus brainhops">'
         '<path d="M45 25V185H850" stroke="#8795a6" fill="none"/>'
         f'<polyline points="{points(native)}" fill="none" stroke="#182738" stroke-width="2"/>'
         f'<polyline points="{points(np.asarray(values))}" fill="none" stroke="#1769bf" stroke-width="2" stroke-dasharray="6 4"/>'
         f'<text x="10" y="40" font-size="12">{upper:.3g}</text><text x="20" y="190" font-size="12">0</text>'
         f'<text x="42" y="205" font-size="12">{x.min():g}</text><text x="820" y="205" font-size="12">{x.max():g}</text>'
         '<text x="300" y="225" font-size="13">Source x coordinate in voxels</text></svg>'
-        "<figcaption>Black: native image samples. Dashed blue: grid-zero interpolation "
-        "(brainhops constant). This is an independent float-ramp probe.</figcaption>"
+        f"<figcaption>Black: native image samples. Dashed blue: {label}. This is an independent float-ramp probe.</figcaption>"
     )
 
 
@@ -402,14 +407,17 @@ def _boundary_probe(result: Record) -> str:
         return ""
     rows, plots = [], []
     for sample in probe["interpolation"]:
-        error = sample["model_errors"]["grid-constant"]["max_abs"]
+        measurement = sample.get("brainhops", {})
+        error = measurement.get("max_abs")
+        observed = f"{error:.6g}" if error is not None else "Not measured"
+        options = measurement.get("error") or measurement.get("options", "Legacy report")
         matches = (
             "; ".join(_BOUNDARY_LABELS.get(name, name) for name in sample["matching_models"])
             or "No tested rule matched"
         )
         rows.append(
             f"<tr><td>{sample['degree']}</td><td>{_escape(matches)}</td>"
-            f'<td class="numeric">{error:.6g}</td><td>{sample.get("measured_far_background", "not recorded")}</td></tr>'
+            f'<td class="numeric">{observed}</td><td>{format_number(measurement.get("rmse"))}</td><td>{format_number(measurement.get("mismatch_count"))}</td><td>{_escape(options)}</td><td>{sample.get("measured_far_background", "not recorded")}</td></tr>'
         )
         plots.append(
             f"<h3>Interpolation degree {sample['degree']}</h3>" + _boundary_curve(probe, sample)
@@ -419,7 +427,7 @@ def _boundary_probe(result: Record) -> str:
         "<p>These probes distinguish padding, half-voxel clipping/clamping, and estimated background. "
         "They do not establish nonlinear transform-field support. A rule that lacks a public brainhops "
         "equivalent remains a documented boundary warning; loaded images are never patched.</p>"
-        "<table><tr><th>Degree</th><th>Matching native rule</th><th>Max difference from constant</th>"
+        "<table><tr><th>Degree</th><th>Matching native rule</th><th>Measured brainhops max error</th><th>RMSE</th><th>Mismatched samples</th><th>Public reslice options / error</th>"
         "<th>Far-background sample</th></tr>"
         + "".join(rows)
         + "</table>"

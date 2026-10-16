@@ -23,11 +23,10 @@ limits remain available rather than rounding coordinates to hide those cases.
 
 brainhops currently maps `bound="constant"` (or numeric zero) to SciPy's
 `grid-constant`: interpolation includes zero-valued neighbours. This exactly
-matches the NiftyReg linear probe. It cannot express the ITK/MRtrix combination
-of an interior clamp and an exterior cutoff, or transformix's clipped mirror
-rule, as one existing public boundary option. Switching to `nearest` or `mirror`
+matches the NiftyReg linear probe. The public `clip` option separately limits
+the sampled voxel extent, allowing nearest/mirror extension inside that extent. Switching to `nearest` or `mirror`
 would extend nonzero image values arbitrarily far outside the FOV, which also
-disagrees. No image/output patch is added to emulate these missing options.
+disagrees. The evaluator uses that upstream option directly, without an image/output patch.
 
 FLIRT's `-setbackground 0 -paddingsize 1` was investigated: on this build it
 changed the padding halo but retained the estimated background farther outside.
@@ -51,7 +50,8 @@ order. It does not search for the best mode on individual anatomical outputs.
 | FLIRT | Linear / nearest neighbour | `constant` (approximate) | `None` |
 | FNIRT applywarp | Linear / nearest neighbour | `constant` | `None` |
 
-Clipping is proposed in [brainhops PR #485](https://github.com/neuroscales/brainhops/pull/485).
+Clipping was merged in [brainhops PR #485](https://github.com/neuroscales/brainhops/pull/485),
+upstream commit `ab2628b11b18ed9e93960fcb562023f76fee6357`.
 The evaluator detects the public `reslice` signature. A selected version without
 `clip` uses the legacy grid-zero approximation; the report records both the
 requested policy and this capability fallback. No patches are applied to the
@@ -84,7 +84,7 @@ and remain separate diagnostics.
 
 ## Focused anatomical validation
 
-Using brainhops clipping commit `0abd3dcda96bc0f6cec37a25eec0e5417dee33c9`
+Using upstream merged brainhops commit `ab2628b11b18ed9e93960fcb562023f76fee6357`
 against unchanged native fixture outputs, the five-case SimpleITK subset lost
 all five boundary warnings. Integer boundary maximum errors of 24–38 became
 zero; the downsampled float case fell from 3.09531 to 0.000188112.
@@ -95,3 +95,20 @@ from 66.1836 to 0.00019455. Its two one-voxel interior integer disagreements
 remain failures. Every case retained exactly the previous interior maximum
 error and integer mismatch count. These subsets test the boundary policy;
 they are not a claim that the full interoperability matrix now passes.
+
+
+## Upstream measurements, not a local clipping implementation
+
+Native generation remains independent of brainhops. At evaluation time, edge
+probes are resliced through `io.images.load(...).reslice(...)` from the selected
+upstream installation, using its public `bound` and `clip` options. Reports
+plot those actual brainhops samples and show their measured maximum error,
+RMSE, mismatch count and exact options in `boundary-probes.json`. Probe reader
+objects are used unchanged, just like the anatomical cases.
+
+The duplicated closed-clipping formulas have been removed from the native
+probe models. Remaining independent models classify native software behavior;
+they do not implement or override brainhops resampling. Legacy reports lacking
+actual brainhops probe samples explicitly label their old diagnostic curve.
+CI checks out upstream `main`; workflow dispatch still accepts any upstream
+commit, tag or branch and records its resolved SHA.

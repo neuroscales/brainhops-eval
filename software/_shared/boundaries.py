@@ -26,11 +26,6 @@ def _predictions(values: np.ndarray, coords: np.ndarray, degree: int) -> dict[st
     models['half-voxel-mirror'] = np.where(inside, models['mirror'], 0)
     strict = np.all((coords > -.5) & (coords < shape - .5), axis=0)
     models['strict-half-voxel-clamp'] = np.where(strict, models['nearest'], 0)
-    closed_half = np.all((coords >= -.5) & (coords <= shape - .5), axis=0)
-    closed_centres = np.all((coords >= 0) & (coords <= shape - 1), axis=0)
-    models['nearest-clip-half-closed'] = np.where(closed_half, models['nearest'], 0)
-    models['mirror-clip-half-closed'] = np.where(closed_half, models['mirror'], 0)
-    models['nearest-clip-centres-closed'] = np.where(closed_centres, models['nearest'], 0)
     return models
 
 
@@ -77,7 +72,8 @@ def probe(output: Path, backend: str, write_transform: Callable, apply_image: Ca
                             model_errors=errors,
                             model_values={name: values.tolist() for name, values in models.items()},
                             matching_models=[name for name, error in errors.items() if error['max_abs'] < 1e-4]))
-    result = dict(schema_version=1, backend=backend, sample_x_voxels=x.tolist(),
+    result = dict(schema_version=2, backend=backend, sample_x_voxels=x.tolist(),
+                  source=str(source.relative_to(output)), reference=str(reference.relative_to(output)),
                   source_shape=list(values.shape), source_edge_centers=[0, 8], requested_background=0 if backend != 'fsl' else 'FLIRT native default',
                   probe_scope='Affine image application; nonlinear transform-field boundaries are separate.',
                   native_provenance=read_json(output / 'registration.json'),

@@ -49,10 +49,37 @@ def test_fixed_clipping_policies_and_old_version_fallback():
     assert reslice_options(policy_for('niftyreg', {'degree': 1}, supports_clip=True)) == {'bound': 'constant'}
 
 
-def test_closed_clipping_preserves_native_endpoint_differences():
-    ramp = np.ones((4, 4, 4), np.float32) * 10
-    coords = np.array([[-.5, -.25, 3.25, 3.5], [1] * 4, [1] * 4])
-    models = _predictions(ramp, coords, 1)
-    np.testing.assert_array_equal(models['nearest-clip-half-closed'], [10, 10, 10, 10])
-    np.testing.assert_array_equal(models['half-voxel-clamp'], [10, 10, 10, 0])
-    np.testing.assert_array_equal(models['strict-half-voxel-clamp'], [0, 10, 10, 0])
+def test_boundary_probes_use_original_readers_and_upstream_reslice(fixtures, monkeypatch):
+    import brainhops.io as bio
+    from brainhops.backends import backend
+    from brainhops.datamodel.images import SingleScaleImage
+    from brainhops_eval.boundary_probes import evaluate_boundary_probes
+
+    original_load, original_reslice = bio.images.load, SingleScaleImage.reslice
+    loaded, applied = set(), []
+
+    def track_load(*args, **kwargs):
+        image = original_load(*args, **kwargs)
+        loaded.add(id(image))
+        return image
+
+    def track_reslice(image, reference, **options):
+        assert id(image) in loaded and id(reference) in loaded
+        applied.append(options)
+        return original_reslice(image, reference, **options)
+
+    monkeypatch.setattr(bio.images, 'load', track_load)
+    monkeypatch.setattr(SingleScaleImage, 'reslice', track_reslice)
+    native = read_json(fixtures / 'boundary-probes.json')
+    context = dict(backend='simpleitk', boundary_probes=native, reslice_capabilities={'clip': True})
+    with backend('numpy'):
+        measured = evaluate_boundary_probes(bio, fixtures, context)
+    assert applied == [{'degree': 0, 'bound': 'constant'}, {'degree': 1, 'bound': 'nearest', 'clip': 0.5}]
+    assert all(item['brainhops']['status'] == 'measured' for item in measured['interpolation'])
+    assert measured['interpolation'][0]['brainhops']['max_abs'] == 0
+    linear = measured['interpolation'][1]['brainhops']
+    assert linear['mismatch_count'] == 1  # Native upper endpoint is excluded; upstream clip is closed.
+    assert 'brainhops' not in native['interpolation'][0]
+    rendered = _boundary_probe({'boundary_probes': measured})
+    assert 'actual upstream brainhops reslice samples' in rendered
+    assert 'Measured brainhops max error' in rendered
