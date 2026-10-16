@@ -26,7 +26,7 @@ def _case(actual, expected, mask):
 
 def test_report_explains_integer_failure_and_limits(tmp_path):
     actual = np.zeros((4, 4), np.int16)
-    actual[1, 1] = 1
+    actual[1, 1] = 2
     record = _case(actual, np.zeros((4, 4)), np.ones((4, 4), bool))
     record['warnings'] = ['<script>alert("unsafe")</script>']
     assert record['status'] == 'fail'
@@ -34,7 +34,7 @@ def test_report_explains_integer_failure_and_limits(tmp_path):
     write_report(tmp_path, _result(record))
     index = (tmp_path / 'index.html').read_text()
     detail = (tmp_path / 'example/index.html').read_text()
-    assert 'Why this result?' in index and 'exact int16 equality' in index
+    assert 'Why this result?' in index and 'differences up to 1 unit only warn' in index
     assert 'Observed' in detail and 'Required' in detail
     assert '<script>alert' not in detail and '&lt;script&gt;' in detail
     assert (tmp_path / 'report.css').exists() and (tmp_path / 'report.js').exists()
@@ -47,6 +47,30 @@ def test_nrmse_can_fail_when_maximum_passes():
     assert record['metrics']['interior_max_abs'] < record['metrics']['atol']
     assert [reason['code'] for reason in record['diagnostics']] == ['normalised-rmse']
     assert 'NRMSE' in record['summary']
+
+
+def test_integer_warning_is_reported_without_a_boundary_or_failure_label(tmp_path):
+    """The portal distinguishes interior quantization warnings from boundary errors."""
+    from brainhops_eval.statistics import issue_counts, software_statistics
+    record = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    result = _result(record)
+    assert record['status'] == 'warning' and result['passed']
+    assert issue_counts([record]) == {'integer-quantization': 1}
+    assert software_statistics([dict(result, _report_path='simpleitk-python')])[0]['failed_families'] == {}
+    write_report(tmp_path, result)
+    detail = (tmp_path / 'example/index.html').read_text()
+    assert 'differences up to 1 unit only warn' in detail
+    assert 'Informational' in detail and 'exact int16 equality' not in detail
+
+
+def test_integer_warning_is_not_listed_as_a_cause_of_an_axis_failure():
+    """Only the failed axis check belongs in the blocking failure summary."""
+    from brainhops_eval.statistics import issue_counts
+    record = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    record['axis_interpretation'] = {'moving': {'checks': {'pixels_match': False}}}
+    conclude(record)
+    assert record['status'] == 'fail'
+    assert issue_counts([record], blocking_only=True) == {'axis-interpretation': 1}
 
 
 def test_axes_can_fail_even_when_values_match():
@@ -145,7 +169,7 @@ def test_software_overview_keeps_warning_status_and_names_failed_tests(tmp_path)
     warning = _case(np.array([[5., 0], [0, 0]]), np.zeros((2, 2)),
                     np.array([[False, True], [True, True]]))
     warning['transform_family'] = 'affine'
-    failed = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    failed = _case(np.full((2, 2), 2, np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
     failed['transform_family'] = 'B-spline'
     reports = [dict(_result(warning, 'ants'), _report_path='ants-python'),
                dict(_result(failed, 'elastix'), _report_path='elastix-python')]
@@ -182,7 +206,7 @@ def test_portal_has_software_navigation_statistics_and_inline_montages(tmp_path)
 
 def test_legacy_failures_are_classified_from_observed_metrics():
     from brainhops_eval.statistics import issue_counts
-    case = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    case = _case(np.full((2, 2), 2, np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
     case.pop('diagnostics')
     assert issue_counts([case]) == {'integer-mismatch': 1}
     case.update(status='error', error='Reader failed')

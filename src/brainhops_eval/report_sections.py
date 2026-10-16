@@ -150,6 +150,8 @@ def _case_attributes(case: Record) -> str:
 
 def _observed_limit(metrics: Record, key: str, limit: str) -> str:
     """Display an observed value and its actual per-case acceptance limit."""
+    if key in metrics and metrics.get(limit) is None:
+        return format_number(metrics[key]) + "<br><small>informational</small>"
     return (
         format_number(metrics.get(key))
         + "<br><small>limit "
