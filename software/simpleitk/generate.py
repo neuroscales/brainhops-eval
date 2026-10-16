@@ -50,11 +50,31 @@ def apply_image(source, reference, transform, degree, output, log):
     sitk.WriteImage(result, str(output))
 
 
-def generate(inputs, output, container_image=None):
+def generate(inputs, output, container_image=None, extended=True):
     """Generate SimpleITK references from a shared input bundle."""
-    return build(inputs, output, backend="simpleitk", register=register_inputs,
+    result = build(inputs, output, backend="simpleitk", register=register_inputs,
                  apply_image=apply_image, include_rasters=True,
                  container_image=container_image)
+    if not extended:
+        return result
+    from software._shared.itk_types import append, read_transform
+
+    def apply_entry(entry, source, reference, degree, target, log):
+        resampled = sitk.Resample(read_image(source), read_image(reference),
+                                  read_transform(entry['transform']),
+                                  sitk.sitkLinear if degree else sitk.sitkNearestNeighbor,
+                                  0, sitk.sitkFloat32)
+        sitk.WriteImage(resampled, str(target))
+
+    result = append(result, 'simpleitk', apply_entry)
+    from software._shared.itk_types import append_png
+
+    def apply_2d(transform, source, reference, degree, target, log):
+        resampled = sitk.Resample(read_image(source), read_image(reference), read_transform(transform),
+                                  sitk.sitkLinear if degree else sitk.sitkNearestNeighbor, 0, sitk.sitkFloat32)
+        sitk.WriteImage(resampled, str(target))
+
+    return append_png(result, 'simpleitk', apply_2d)
 
 
 if __name__ == "__main__":

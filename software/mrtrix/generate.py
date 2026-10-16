@@ -30,10 +30,12 @@ def apply_image(moving, reference, transform, degree, output, log):
 
 def generate(inputs, output, container_image=None):
     os.environ["OMP_NUM_THREADS"] = "1"
-    return build(inputs, output, backend="mrtrix", register=register,
+    result = build(inputs, output, backend="mrtrix", register=register,
                  write_transform=write_transform, apply_image=apply_image, hint="mrtrix.linear",
                  convention="MRtrix reverse convention: template scanner RAS mm to moving scanner RAS mm (pull)",
                  container_image=container_image)
+    from software.mrtrix.nonlinear import append
+    return append(result)
 
 
 if __name__ == "__main__":

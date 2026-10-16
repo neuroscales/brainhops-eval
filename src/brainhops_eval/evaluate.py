@@ -84,14 +84,17 @@ def transform_source(fixtures, case):
     spec = quote(str(relative_file(fixtures, case["transform"])), safe="/:._-")
     if case.get("transform_hint"):
         spec += "|" + case["transform_hint"]
+    for name, value in case.get("transform_options", {}).items():
+        spec += f"|{name}:{str(value).lower() if isinstance(value, bool) else value}"
     for name, path in case.get("transform_images", {}).items():
         spec += f"|{name}:[{quote(str(relative_file(fixtures, path)), safe='/:._-')}]"
     return spec
 
 
 def load_transform(bio, fixtures, case):
-    options = {name: bio.images.load(relative_file(fixtures, path))
-               for name, path in case.get("transform_images", {}).items()}
+    options = dict(case.get("transform_options", {}))
+    options.update({name: bio.images.load(relative_file(fixtures, path))
+               for name, path in case.get("transform_images", {}).items()})
     if case.get("transform_hint"):
         options["hint"] = case["transform_hint"]
     return bio.load(relative_file(fixtures, case["transform"]), **options)
@@ -123,10 +126,16 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
               "geometry_probes": probes,
               "packages": {dist.metadata["Name"]: dist.version for dist in importlib.metadata.distributions()},
               "registration": read_json(fixtures / "registration.json"), "cases": []}
+    if (fixtures / "coverage.json").exists():
+        result["transform_coverage"] = read_json(fixtures / "coverage.json")
+        write_json(output / "coverage.json", result["transform_coverage"])
     for case in manifest["cases"]:
         record = {"id": case["id"], "status": "error", "transform": case["transform"],
                   "transform_hint": case.get("transform_hint"),
                   "transform_images": case.get("transform_images", {}),
+                  "transform_options": case.get("transform_options", {}),
+                  "transform_family": case.get("transform_family", "affine"),
+                  "transform_representation": case.get("transform_representation"),
                   "interface": interface if case["kind"] == "nifti" else "python"}
         case_output = output / case["id"]
         case_output.mkdir()

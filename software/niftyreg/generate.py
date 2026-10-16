@@ -29,10 +29,12 @@ def apply_image(moving, reference, transform, degree, output, log):
 
 def generate(inputs, output, container_image=None):
     os.environ["OMP_NUM_THREADS"] = "1"
-    return build(inputs, output, backend="niftyreg", register=register,
+    result = build(inputs, output, backend="niftyreg", register=register,
                  write_transform=write_transform, apply_image=apply_image, hint="niftyreg.aladin",
                  convention="reg_aladin affine: reference world RAS mm to floating world RAS mm (pull)",
                  container_image=container_image)
+    from software.niftyreg.nonlinear import append
+    return append(result)
 
 
 if __name__ == "__main__":

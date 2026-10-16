@@ -84,10 +84,12 @@ def apply_image(moving, reference, transform, degree, output, log):
 
 def generate(inputs, output, container_image=None):
     os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = '1'
-    return build(inputs, output, backend='elastix', register=register,
+    result = build(inputs, output, backend='elastix', register=register,
                  write_transform=write_transform, apply_image=apply_image, hint='elastix',
                  convention='elastix/transformix: fixed physical LPS mm to moving physical LPS mm (pull)',
                  container_image=container_image)
+    from software.elastix.nonlinear import append
+    return append(result)
 
 
 if __name__ == '__main__':

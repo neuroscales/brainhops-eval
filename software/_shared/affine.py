@@ -12,9 +12,9 @@ from scipy.ndimage import affine_transform
 from brainhops_eval.files import digest, inventory, read_json, verify, write_json
 
 
-def command(arguments, log):
+def command(arguments, log, *, cwd=None):
     arguments = [str(value) for value in arguments]
-    process = subprocess.run(arguments, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    process = subprocess.run(arguments, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
     with Path(log).open("a") as stream:
         stream.write(repr(arguments) + "\n" + process.stdout + "\n")
     process.check_returncode()

@@ -14,6 +14,7 @@ import urllib.request
 
 LAYER = "sha256:8b22cc78a1b280b6a88cda4959b019bf9681593b2cf80987127c146ea0251dee"
 PREFIX = "usr/local/fsl/"
+BINARIES = ("flirt", "fnirt", "applywarp", "convertwarp", "invwarp", "fnirtfileutils")
 
 
 class VerifiedStream:
@@ -43,7 +44,7 @@ def extract(destination):
                 if not name.startswith(PREFIX):
                     continue
                 relative = name[len(PREFIX):]
-                if not (relative in ("bin/flirt", "etc/fslversion") or
+                if not (relative in tuple("bin/" + name for name in BINARIES) + ("etc/fslversion",) or
                         relative.startswith("lib/") or "licen" in relative.lower()):
                     continue
                 target = destination / relative
@@ -67,8 +68,9 @@ def extract(destination):
             pass
         if "sha256:" + verified.hash.hexdigest() != LAYER:
             raise ValueError("FSL upstream layer checksum mismatch")
-    if not (destination / "bin/flirt").is_file():
-        raise ValueError("Upstream layer contains no FLIRT executable")
+    for name in BINARIES:
+        if not (destination / "bin" / name).is_file():
+            raise ValueError(f"Upstream layer contains no {name} executable")
     (destination / "runtime-source.json").write_text(json.dumps({"image": "brainlife/fsl:6.0.4", "layer": LAYER, "files": found}, indent=2))
 
 

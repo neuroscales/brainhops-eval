@@ -1,0 +1,86 @@
+"""Native FNIRT spline, dense absolute/relative and composed warp fixtures."""
+
+from pathlib import Path
+
+import nibabel as nib
+import numpy as np
+
+from software._shared.affine import command, fsl_scaled
+from software._shared.nonlinear import append_cases, smooth_displacement, world_grid
+
+
+def apply_image(entry, source, reference, degree, output, log):
+    root = Path(entry['root'])
+    original_mov, original_ref = nib.load(root / 'inputs/moving.nii.gz'), nib.load(root / 'inputs/fixed.nii.gz')
+    mov, ref = nib.load(source), nib.load(reference)
+    pre = fsl_scaled(original_mov) @ np.linalg.inv(original_mov.affine) @ mov.affine @ np.linalg.inv(fsl_scaled(mov))
+    post = fsl_scaled(ref) @ np.linalg.inv(ref.affine) @ original_ref.affine @ np.linalg.inv(fsl_scaled(original_ref))
+    prefix = output.parent / output.name.removesuffix('.nii.gz')
+    pre_path, post_path = Path(str(prefix) + '-pre.mat'), Path(str(prefix) + '-post.mat')
+    np.savetxt(pre_path, pre, fmt='%.15g')
+    np.savetxt(post_path, post, fmt='%.15g')
+    warp = Path(str(prefix) + '-rebased.nii.gz')
+    args = ['convertwarp', '--ref=' + str(reference), '--warp1=' + str(entry['transform']),
+            '--premat=' + str(pre_path), '--postmat=' + str(post_path), '--relout', '--out=' + str(warp)]
+    if entry.get('dense'):
+        args.append('--abs' if entry.get('absolute') else '--rel')
+    command(args, log)
+    command(['applywarp', '--in=' + str(source), '--ref=' + str(reference), '--warp=' + str(warp),
+             '--out=' + str(output), '--rel', '--interp=' + ('trilinear' if degree else 'nn'), '--datatype=float'], log)
+
+
+def append(output):
+    output = Path(output)
+    folder = output / 'transforms/fsl-nonlinear'
+    folder.mkdir()
+    log = output / 'commands.log'
+    fixed, moving = output / 'inputs/fixed.nii.gz', output / 'inputs/moving.nii.gz'
+    ref, mov = nib.load(fixed), nib.load(moving)
+    points = world_grid(ref)
+    warped = points + smooth_displacement(points)
+    to_mov = fsl_scaled(mov) @ np.linalg.inv(mov.affine)
+    to_ref = fsl_scaled(ref) @ np.linalg.inv(ref.affine)
+    absolute = warped @ to_mov[:3, :3].T + to_mov[:3, 3]
+    relative = absolute - (points @ to_ref[:3, :3].T + to_ref[:3, 3])
+    entries = []
+    def entry(name, path, family, representation, **extra):
+        return dict(id='nonlinear-' + name, family=family, representation=representation,
+                    transform=path, root=output, transform_hint='fnirt',
+                    transform_images={'moving': 'inputs/moving.nii.gz', 'reference': 'inputs/fixed.nii.gz'},
+                    origin='registered-native' if 'registered' in name else 'known-native',
+                    domain='inputs/fixed.nii.gz', **extra)
+    for name, values, is_absolute in [('known-relative', relative, False), ('known-absolute', absolute, True)]:
+        path = folder / (name + '.nii.gz')
+        image = nib.Nifti1Image(values.astype(np.float32), ref.affine)
+        image.header['intent_code'] = 0 if is_absolute else 2006
+        image.header.set_xyzt_units('mm')
+        nib.save(image, path)
+        entries.append(entry(name, path, 'dense-' + ('absolute' if is_absolute else 'relative'), 'FNIRT field 2006',
+                             dense=True, absolute=is_absolute,
+                             transform_options={'deformation_type': 'absolute' if is_absolute else 'relative'}))
+    for order in (2, 3):
+        coeff = folder / f'registered-order{order}-coefficients.nii.gz'
+        command(['fnirt', '--in=' + str(moving), '--ref=' + str(fixed),
+                 '--aff=' + str(output / 'transforms/registered.mat'), '--cout=' + str(coeff),
+                 '--warpres=12,12,12', '--splineorder=' + str(order), '--subsamp=2,1', '--miter=2,2',
+                 '--infwhm=2,0', '--reffwhm=2,0', '--lambda=50,30', '--intmod=none', '--estint=0,0', '--applyrefmask=0,0', '--applyinmask=0,0'], log)
+        entries.append(entry(f'registered-bspline{order}-with-affine', coeff, f'bspline-order{order}-with-affine',
+                             'FNIRT coefficients 2009' if order == 2 else 'FNIRT coefficients 2007'))
+        for convention in ('relative', 'absolute'):
+            field = folder / f'registered-order{order}-{convention}.nii.gz'
+            command(['convertwarp', '--ref=' + str(fixed), '--warp1=' + str(coeff),
+                     '--out=' + str(field), '--relout' if convention == 'relative' else '--absout'], log)
+            entries.append(entry(f'registered-bspline{order}-to-{convention}', field,
+                                 f'bspline{order}-converted-{convention}', 'FNIRT field', dense=True,
+                                 absolute=convention == 'absolute',
+                                 transform_options={'deformation_type': convention}))
+    composed = folder / 'composed-warp-and-affine.nii.gz'
+    # Noncommuting affine and nonlinear composition, materialised by FSL.
+    command(['convertwarp', '--ref=' + str(fixed), '--warp1=' + str(folder / 'known-relative.nii.gz'),
+             '--rel', '--postmat=' + str(output / 'transforms/registered.mat'), '--relout',
+             '--out=' + str(composed)], log)
+    entries.append(entry('composed-warp-and-affine', composed, 'warp-plus-affine-composed', 'FNIRT field', dense=True,
+                         transform_options={'deformation_type': 'relative'}))
+    return append_cases(output, entries, apply_image, unavailable=[
+        {'family': 'DCT-coefficients-2008', 'reason': 'brainhops detects but does not implement FNIRT DCT coefficient evaluation; FNIRT 6.0.4 exposes quadratic/cubic spline outputs'},
+    ])

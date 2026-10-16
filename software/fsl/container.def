@@ -32,5 +32,7 @@ From: python@sha256:a8e0a3090316aed0b11037aac613aef32fb1747dcc1dcb5c0f6c727a0113
 
 %test
     /opt/fsl/bin/flirt -version
+    test -x /opt/fsl/bin/fnirt
+    test -x /opt/fsl/bin/applywarp
     cd /opt/brainhops-eval
     python -m software.fsl.generate --help

@@ -33,10 +33,12 @@ def apply_image(moving, reference, transform, degree, output, log):
 
 def generate(inputs, output, container_image=None):
     os.environ.update(FSLOUTPUTTYPE="NIFTI_GZ", OMP_NUM_THREADS="1")
-    return build(inputs, output, backend="fsl", register=register, write_transform=write_transform,
+    result = build(inputs, output, backend="fsl", register=register, write_transform=write_transform,
                  apply_image=apply_image, hint="flirt", image_options=True,
                  convention="FLIRT moving scaled-mm to reference scaled-mm; decoded as RAS pull using original images",
                  container_image=container_image)
+    from software.fsl.nonlinear import append
+    return append(result)
 
 
 if __name__ == "__main__":

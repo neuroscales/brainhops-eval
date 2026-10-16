@@ -37,8 +37,10 @@ def apply_image(source, reference, transform, degree, output, log):
 
 def generate(inputs, output, container_image=None):
     """Generate ANTs references from a shared input bundle."""
-    return build(inputs, output, backend="ants", register=register,
+    result = build(inputs, output, backend="ants", register=register,
                  apply_image=apply_image, container_image=container_image)
+    from software.ants.nonlinear import append
+    return append(result)
 
 
 if __name__ == "__main__":
