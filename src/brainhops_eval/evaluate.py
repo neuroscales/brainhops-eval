@@ -66,9 +66,14 @@ def compare(actual, expected, mask, atol=0.02, nrmse_limit=2e-5):
     span = max(float(np.ptp(expected)), 1)
     maximum = float(error[mask].max())
     nrmse = float(np.sqrt(np.mean(error[mask] ** 2)) / span)
+    boundary_maximum = float(error[~mask].max()) if (~mask).any() else 0
+    boundary_nrmse = float(np.sqrt(np.mean(error[~mask] ** 2)) / span) if (~mask).any() else 0
+    boundary_warning = boundary_maximum > atol or boundary_nrmse > nrmse_limit
     metrics = {"interior_fraction": fraction, "interior_max_abs": maximum,
                "interior_nrmse": nrmse,
-               "boundary_max_abs": float(error[~mask].max()) if (~mask).any() else 0,
+               "boundary_max_abs": boundary_maximum,
+               "boundary_nrmse": boundary_nrmse,
+               "boundary_warning": boundary_warning,
                "all_voxels_rmse": float(np.sqrt(np.mean(error ** 2))),
                "atol": atol, "nrmse_limit": nrmse_limit}
     return maximum <= atol and nrmse <= nrmse_limit, metrics
@@ -199,12 +204,18 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
             if integer_output:
                 mismatches = int(np.count_nonzero(actual[mask] != comparison_expected[mask]))
                 metrics["interior_mismatch_count"] = mismatches
+                metrics["boundary_mismatch_count"] = int(np.count_nonzero(actual[~mask] != comparison_expected[~mask]))
                 passed = mismatches == 0
             record["comparison_dtype"] = str(actual.dtype)
             record["comparison_policy"] = "reference converted to decoded brainhops output dtype; integer equality is exact"
             record["raw_reference_metrics"] = raw_metrics
             passed = passed and all(check["passed"] for check in record.get("axis_interpretation", {}).values())
-            record.update(status="pass" if passed else "fail", metrics=metrics)
+            if metrics["boundary_warning"]:
+                record.setdefault("warnings", []).append(
+                    f"Boundary differences exceed comparison thresholds (max absolute error "
+                    f"{metrics['boundary_max_abs']:.6g}); boundary values do not affect acceptance.")
+            record.update(status=("warning" if metrics["boundary_warning"] else "pass") if passed else "fail",
+                          metrics=metrics)
             montage(case_output / "comparison.png", reference_array, comparison_expected, actual,
                     window=case.get("display_window"))
             record["display_window"] = case.get("display_window")
@@ -213,7 +224,7 @@ def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown
             record["error"] = traceback.format_exc()
         result["cases"].append(record)
         print(f"{record['status']:5} {record['id']}", flush=True)
-    result["passed"] = bool(result["cases"]) and all(case["status"] == "pass" for case in result["cases"])
+    result["passed"] = bool(result["cases"]) and all(case["status"] in ("pass", "warning") for case in result["cases"])
     write_json(output / "registration.json", result["registration"])
     write_json(output / "results.json", result)
     write_report(output, result)

@@ -70,7 +70,7 @@ def write_report(output, result):
         'All anatomy and checkerboard panels share the displayed intensity window; only absolute differences use a separate scale. '
         'Slices use reference voxel axes; they are not anatomical orientation labels. '
         'Registration quality is recorded separately in <a href="registration.json">registration.json</a>. '
-        'Boundary differences are reported separately from the interior pass criteria.</p>'
+        'Boundary-only discrepancies have warning status and do not fail the run. Interior discrepancies still fail.</p>'
         '<p>Package values and image panels are converted to the decoded brainhops output dtype. '
         'Integer comparisons require exact interior equality after rounding and saturation. '
         'Differences against the original floating reference remain diagnostic.</p>'

@@ -89,7 +89,7 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     passed = evaluate(fixtures, report, brainhops_ref="test-ref", brainhops_sha="test-sha")
     result = read_json(report / "results.json")
     assert applied and all(identity in loaded for identity in applied)
-    assert passed == all(case["status"] == "pass" for case in result["cases"])
+    assert passed == all(case["status"] in ("pass", "warning") for case in result["cases"])
     assert len(result["cases"]) == 29
     assert not any(case["id"] == "npy" for case in result["cases"])
     assert result["brainhops_ref"] == "test-ref"
@@ -143,3 +143,27 @@ def test_integer_anatomy_uses_many_bins(inputs, dtype):
         assert image.dataobj.slope == 1 and image.dataobj.inter == 0
     variant = next(v for v in read_json(inputs / "inputs.json")["variants"] if v["id"] == dtype)
     assert variant["reference"] == f"fixed-{dtype}.nii.gz"
+
+
+def test_boundary_only_difference_is_nonblocking_warning(fixtures, tmp_path):
+    import shutil
+    copy = tmp_path / "fixtures"
+    shutil.copytree(fixtures, copy)
+    cases = read_json(copy / "cases.json")
+    case = next(c for c in cases["cases"] if c["id"] == "known-tfm-moving-downsampled")
+    cases["cases"] = [case]
+    write_json(copy / "cases.json", cases)
+    mask = np.load(copy / case["mask"])
+    native = nib.load(copy / case["expected"])
+    values = native.get_fdata()
+    values[~mask] += 100
+    nib.save(nib.Nifti1Image(values.astype(np.float32), native.affine), copy / case["expected"])
+    write_json(copy / "manifest.json", {"schema_version": 1, "files": inventory(copy)})
+    output = tmp_path / "report"
+    assert evaluate(copy, output)
+    record = read_json(output / "results.json")["cases"][0]
+    assert record["status"] == "warning"
+    assert record["metrics"]["boundary_warning"]
+    assert record["metrics"]["boundary_max_abs"] >= 100
+    assert any("Boundary differences" in warning for warning in record["warnings"])
+    assert "warning" in (output / "index.html").read_text()
