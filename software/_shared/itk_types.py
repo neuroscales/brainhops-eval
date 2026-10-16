@@ -205,15 +205,15 @@ def append_png(output, backend, apply_2d):
             native_path = case_dir / 'expected.nii.gz'
             try:
                 apply_2d(path, moving_path, fixed_path, 1, native_path, output / 'commands.log')
-            except subprocess.CalledProcessError as error:
+            except (subprocess.CalledProcessError, RuntimeError) as error:
                 # Native factory omissions are captured as capability failures;
                 # failed brainhops applications are never routed through here.
-                if backend != 'ants' or not any(token in (error.output or '').lower() for token in
-                                                ('could not create', 'not registered', 'not supported')):
+                text = (getattr(error, 'output', None) or str(error)).lower()
+                if not any(token in text for token in ('could not create an instance', 'not registered', 'not supported')):
                     raise
                 coverage['unavailable'].append(dict(family=f'2d-{name}', representation=extension,
-                                                    reason='ANTs native reader rejected this 2-D type',
-                                                    native_error=str(error.output)[:1800]))
+                                                    reason=f'{backend} native reader rejected this 2-D type',
+                                                    native_error=(getattr(error, 'output', None) or str(error))[:1800]))
                 continue
             np.save(case_dir / 'expected.npy', model_array(sitk.ReadImage(str(native_path))))
             source = sitk.ReadImage(str(moving_path), sitk.sitkFloat32)

@@ -5,7 +5,7 @@ native capability gaps are documented in [software/README.md](../software/README
 A representation is only listed as tested after its native application succeeds.
 The evaluator applies transforms directly to the image reader's loaded objects.
 
-The tooling suite has 29 passing tests. Additional native checks verify physical
+The tooling suite has 30 passing tests. Additional native checks verify physical
 ITK serialization, nonzero curvature, noncommuting composition, and independent
 RAS mappings for known FSL/NiftyReg fields. FSL known relative/absolute applications
 on original and downsampled moving grids agree with independent SciPy world-space
@@ -32,5 +32,5 @@ These examples are diagnostic observations, not a complete root-cause analysis
 of every numerical discrepancy. Per-case JSON, tracebacks and montages in Actions
 artifacts are authoritative for the selected brainhops version. Native build
 omissions (for example Debian elastix's missing Similarity/AffineLog/AffineDTI
-components and ANTs' missing noncubic spline factories) are recorded separately
+components, SimpleITK's missing 2D logarithmic-scale factory, and ANTs' missing noncubic spline factories) are recorded separately
 in `coverage.json`, with native command logs; they are not claimed as passing tests.

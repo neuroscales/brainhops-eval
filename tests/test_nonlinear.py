@@ -66,3 +66,35 @@ def test_report_distinguishes_tested_native_representations_and_unavailable(tmp_
     assert 'coverage.json' in report and 'bspline' in report
     assert 'native reader unavailable' in report
     assert 'inspect each comparison status' in report
+
+
+def test_native_png_roundtrips_and_factory_gaps_are_recorded(inputs, tmp_path):
+    from brainhops_eval.files import read_json, write_json
+    from software._shared.itk import read_image
+    from software._shared.itk_types import append_png
+
+    shutil.copytree(inputs, tmp_path / 'inputs')
+    (tmp_path / 'transforms').mkdir()
+    (tmp_path / 'cases').mkdir()
+    write_json(tmp_path / 'cases.json', {'cases': []})
+    write_json(tmp_path / 'coverage.json', {'tested': [], 'unavailable': []})
+    write_json(tmp_path / 'geometry-probes.json', {})
+
+    def apply(transform, source, reference, degree, target, log):
+        image = sitk.Resample(read_image(source), read_image(reference), read_transform(transform),
+                              sitk.sitkLinear if degree else sitk.sitkNearestNeighbor, 0, sitk.sitkFloat32)
+        sitk.WriteImage(image, str(target))
+
+    append_png(tmp_path, 'simpleitk', apply)
+    coverage = read_json(tmp_path / 'coverage.json')
+    assert any(row['family'] == '2d-displacement' for row in coverage['tested'])
+    assert any(row['family'] == '2d-composite-affine-bspline' for row in coverage['tested'])
+    # Builds with a missing ScaleLogarithmic factory must retain every other case.
+    assert len(coverage['tested']) >= 30
+    cases = read_json(tmp_path / 'cases.json')['cases']
+    assert len(cases) == len(coverage['tested'])
+    for case in cases:
+        expected = np.load(tmp_path / case['expected'])
+        mask = np.load(tmp_path / case['mask'])
+        assert expected.shape == mask.shape == (63, 47)
+        assert np.isfinite(expected).all() and mask.mean() > .05
