@@ -23,6 +23,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -r software/simpleitk/requirements.txt -e '.[test]' './work/brainhops-source[nifti,pillow,itk]'
+      - run: ruff check src
+      - run: ruff format --check src
       - run: pytest -q
   interoperability:
     uses: ./.github/workflows/evaluate.yml

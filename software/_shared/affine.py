@@ -118,8 +118,11 @@ def build(inputs, output, *, backend, register, write_transform, apply_image,
     write_json(output / "geometry-probes.json", {})
     write_json(output / "cases.json", {"schema_version": 1, "backend": backend,
                "transform_convention": convention,
-               "boundary": "zero; native interpolation edges excluded from interior criteria", "cases": cases})
+               "boundary": "native boundary convention recorded in boundary-probes.json; interpolation edges excluded from interior criteria", "cases": cases})
     write_json(output / "manifest.json", {"schema_version": 1, "files": inventory(output)})
+    from software._shared.boundaries import probe
+    probe(output, backend, write_transform, apply_image,
+          extension='mat' if backend == 'fsl' else 'txt')
     return output
 
 

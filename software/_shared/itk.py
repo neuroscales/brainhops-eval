@@ -145,6 +145,13 @@ def build(inputs, output, *, backend, register, apply_image, include_rasters=Fal
                "boundary": "zero; interpolation-edge differences reported separately",
                "cases": cases})
     write_json(output / "manifest.json", {"schema_version": 1, "files": inventory(output)})
+    from software._shared.boundaries import probe
+
+    def write_probe(path, pull, moving, reference):
+        sitk.WriteTransform(affine_from_matrix(pull), str(path))
+        return path
+
+    probe(output, backend, write_probe, apply_image, extension='tfm')
     return output
 
 

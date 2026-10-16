@@ -1,241 +1,198 @@
-"""Evaluate an immutable reference fixture with the installed brainhops."""
+"""Orchestrate immutable-fixture evaluation using the selected brainhops version."""
+
+from __future__ import annotations
 
 import importlib.metadata
 import os
 import platform
-import subprocess
-import sys
 import traceback
 import warnings
-from urllib.parse import quote
 from pathlib import Path
+from typing import Any
 
 import nibabel as nib
 import numpy as np
 
+from .boundaries import policy_for
+from .comparison import assess, compare, conclude, reference_in_output_dtype
 from .files import digest, read_json, relative_file, verify, write_json
-from .axes import raster_axis_check
 from .report import montage, write_report
+from .resampling import (
+    CasePaths,
+    execute,
+    expected_on_reference_grid,
+    load_array,
+    load_transform,
+    transform_source,
+)
+from .types import PathLike, Record
+
+# Retain the small public helpers imported by existing users and tests.
+__all__ = [
+    "evaluate",
+    "compare",
+    "reference_in_output_dtype",
+    "load_array",
+    "expected_on_reference_grid",
+    "load_transform",
+    "transform_source",
+]
 
 
-def load_array(path):
-    return np.load(path, allow_pickle=False) if Path(path).suffix == ".npy" else nib.load(path).get_fdata()
+def _provenance(
+    fixtures: Path, manifest: Record, brainhops_ref: str, brainhops_sha: str, interface: str
+) -> Record:
+    """Record immutable versions, fixture identity, registration, and reader probes."""
+    result = dict(
+        schema_version=2,
+        brainhops_ref=brainhops_ref,
+        brainhops_sha=brainhops_sha,
+        brainhops_version=importlib.metadata.version("brainhops"),
+        evaluator_version=importlib.metadata.version("brainhops-eval"),
+        evaluator_sha=os.environ.get("BRAINHOPS_EVAL_SHA", "unknown"),
+        fixture_manifest_sha256=digest(fixtures / "manifest.json"),
+        backend=manifest["backend"],
+        interface=interface,
+        python=platform.python_version(),
+        source=read_json(fixtures / "inputs/inputs.json")["source"],
+        transform_convention=manifest["transform_convention"],
+        geometry_probes=read_json(fixtures / "geometry-probes.json"),
+        packages={
+            dist.metadata["Name"]: dist.version for dist in importlib.metadata.distributions()
+        },
+        registration=read_json(fixtures / "registration.json"),
+        cases=[],
+    )
+    for filename, key in [
+        ("coverage.json", "transform_coverage"),
+        ("boundary-probes.json", "boundary_probes"),
+    ]:
+        if (fixtures / filename).exists():
+            result[key] = read_json(fixtures / filename)
+    return result
 
 
-def expected_on_reference_grid(path, reference):
-    """Undo lossless native axis storage changes; never interpolate expected data."""
-    image, ref = nib.load(path), nib.load(reference)
-    orientation = nib.orientations.ornt_transform(
-        nib.orientations.io_orientation(image.affine), nib.orientations.io_orientation(ref.affine))
-    aligned = image.as_reoriented(orientation)
-    if aligned.shape != ref.shape or not np.allclose(aligned.affine, ref.affine, atol=1e-4, rtol=1e-6):
-        raise ValueError("Native output is not on the reference grid, even after lossless axis reordering")
-    return aligned.get_fdata(), orientation.tolist()
+def _expectation(paths: CasePaths, case: Record, record: Record) -> tuple[np.ndarray, np.ndarray]:
+    """Read native reference values and the independently generated interior mask."""
+    record["stage"] = "read native reference"
+    expected = load_array(paths.expected)
+    if case["kind"] == "nifti":
+        expected, record["native_output_axis_reordering"] = expected_on_reference_grid(
+            paths.expected, paths.reference
+        )
+    record["reference_output_dtype"] = str(
+        expected.dtype
+        if paths.expected.suffix == ".npy"
+        else nib.load(paths.expected).get_data_dtype()
+    )
+    mask = np.load(paths.mask, allow_pickle=False).astype(bool)
+    return expected, mask
 
 
-def reference_in_output_dtype(expected, dtype):
-    """Convert reference values only; never alter loaded brainhops images.
+def _initial_record(case: Record, backend: str, interface: str) -> Record:
+    """Describe the exact input transform and requested application settings."""
+    return dict(
+        id=case["id"],
+        status="error",
+        stage="prepare case",
+        moving=case["moving"],
+        reference_image=case["reference"],
+        transform=case["transform"],
+        transform_hint=case.get("transform_hint"),
+        transform_images=case.get("transform_images", {}),
+        transform_options=case.get("transform_options", {}),
+        transform_family=case.get("transform_family", "affine"),
+        transform_representation=case.get("transform_representation"),
+        degree=case["degree"],
+        boundary_policy=policy_for(backend, case),
+        interface=interface if case["kind"] == "nifti" else "python",
+    )
 
-    Integer output follows the resampler's round-half-away-from-zero and
-    saturation convention, rather than NumPy's truncating integer cast.
+
+def _case(bio: Any, fixtures: Path, output: Path, case: Record, context: Record) -> Record:
+    """Run one case, retaining exceptions and a concise reason in the report."""
+    record = _initial_record(case, context["backend"], context["interface"])
+    directory = relative_file(output, case["id"])
+    directory.mkdir()
+    try:
+        paths = CasePaths.resolve(fixtures, directory, case)
+        expected, mask = _expectation(paths, case, record)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            arrays = execute(bio, fixtures, paths, case, context["geometry_probes"], record)
+        record["warnings"] = [str(warning.message) for warning in caught]
+        record["stage"] = "compare output"
+        assessment, panel_expected = assess(arrays.actual, expected, mask, case["degree"])
+        record.update(assessment)
+        conclude(record)
+        record["stage"] = "render montage"
+        montage(
+            directory / "comparison.png",
+            arrays.reference,
+            panel_expected,
+            arrays.actual,
+            window=case.get("display_window"),
+        )
+        record.update(
+            display_window=case.get("display_window"),
+            preview=f"{case['id']}/comparison.png",
+            stage="complete",
+        )
+    except Exception as error:
+        record.update(
+            status="error",
+            error=traceback.format_exc(),
+            error_type=type(error).__name__,
+            error_summary=str(error),
+            summary=f"{record['stage'].capitalize()} failed: {type(error).__name__}: {(str(error).strip().splitlines() or [type(error).__name__])[-1]}",
+        )
+    return record
+
+
+def _save_report(output: Path, result: Record) -> None:
+    """Write portable JSON, coverage, registration and HTML even after case failures."""
+    result["passed"] = bool(result["cases"]) and all(
+        case["status"] in ("pass", "warning") for case in result["cases"]
+    )
+    for filename, key in [
+        ("registration.json", "registration"),
+        ("coverage.json", "transform_coverage"),
+        ("boundary-probes.json", "boundary_probes"),
+    ]:
+        if key in result:
+            write_json(output / filename, result[key])
+    write_json(output / "results.json", result)
+    write_report(output, result)
+
+
+def evaluate(
+    fixtures: PathLike,
+    output: PathLike,
+    brainhops_ref: str = "installed",
+    brainhops_sha: str = "unknown",
+    interface: str = "python",
+) -> bool:
+    """Evaluate every native case and write a report; return interior acceptance.
+
+    The selected brainhops is imported only here. Source/reference images are
+    used directly from its readers; no replacement objects or geometry fixes
+    are applied. Boundary-only discrepancies warn, and reader/interior failures
+    fail the run. An empty output directory prevents stale results.
     """
-    if not np.isfinite(expected).all():
-        raise ValueError("Non-finite reference values")
-    dtype = np.dtype(dtype)
-    if dtype.kind in "iu":
-        values = np.asarray(expected, dtype=np.longdouble)
-        rounded = np.where(values >= 0, np.floor(values + 0.5), np.ceil(values - 0.5))
-        bounds = np.iinfo(dtype)
-        return np.clip(rounded, np.longdouble(bounds.min), np.longdouble(bounds.max)).astype(dtype)
-    if dtype.kind == "b":
-        return np.trunc(expected).astype(dtype)
-    if dtype.kind == "f":
-        return expected.astype(dtype)
-    raise ValueError(f"Unsupported output dtype: {dtype}")
-
-
-def compare(actual, expected, mask, atol=0.02, nrmse_limit=2e-5):
-    if actual.shape != expected.shape or mask.shape != expected.shape:
-        raise ValueError("Output, expectation, and mask shapes must match")
-    if not np.isfinite(actual).all() or not np.isfinite(expected).all():
-        raise ValueError("Non-finite image values")
-    fraction = float(mask.mean())
-    if fraction < 0.05:
-        raise ValueError(f"Insufficient interior overlap: {fraction:.2%}")
-    error = np.abs(actual.astype(float) - expected)
-    span = max(float(np.ptp(expected)), 1)
-    maximum = float(error[mask].max())
-    nrmse = float(np.sqrt(np.mean(error[mask] ** 2)) / span)
-    boundary_maximum = float(error[~mask].max()) if (~mask).any() else 0
-    boundary_nrmse = float(np.sqrt(np.mean(error[~mask] ** 2)) / span) if (~mask).any() else 0
-    boundary_warning = boundary_maximum > atol or boundary_nrmse > nrmse_limit
-    metrics = {"interior_fraction": fraction, "interior_max_abs": maximum,
-               "interior_nrmse": nrmse,
-               "boundary_max_abs": boundary_maximum,
-               "boundary_nrmse": boundary_nrmse,
-               "boundary_warning": boundary_warning,
-               "all_voxels_rmse": float(np.sqrt(np.mean(error ** 2))),
-               "atol": atol, "nrmse_limit": nrmse_limit}
-    return maximum <= atol and nrmse <= nrmse_limit, metrics
-
-
-def transform_source(fixtures, case):
-    """A portable CLI source spec, including optional original image geometries."""
-    spec = quote(str(relative_file(fixtures, case["transform"])), safe="/:._-")
-    if case.get("transform_hint"):
-        spec += "|" + case["transform_hint"]
-    for name, value in case.get("transform_options", {}).items():
-        spec += f"|{name}:{str(value).lower() if isinstance(value, bool) else value}"
-    for name, path in case.get("transform_images", {}).items():
-        spec += f"|{name}:[{quote(str(relative_file(fixtures, path)), safe='/:._-')}]"
-    return spec
-
-
-def load_transform(bio, fixtures, case):
-    options = dict(case.get("transform_options", {}))
-    options.update({name: bio.images.load(relative_file(fixtures, path))
-               for name, path in case.get("transform_images", {}).items()})
-    if case.get("transform_hint"):
-        options["hint"] = case["transform_hint"]
-    return bio.load(relative_file(fixtures, case["transform"]), **options)
-
-
-def evaluate(fixtures, output, brainhops_ref="installed", brainhops_sha="unknown", interface="python"):
-    # Only this stage imports brainhops. Native fixtures are reusable across refs.
     import brainhops.io as bio
     from brainhops.backends import set_backend
 
     set_backend("numpy")
-
     fixtures, output = Path(fixtures).resolve(), Path(output).resolve()
     if output.exists() and any(output.iterdir()):
         raise ValueError("Use an empty output directory to avoid stale reports")
     verify(fixtures, read_json(fixtures / "manifest.json"))
     output.mkdir(parents=True, exist_ok=True)
     manifest = read_json(fixtures / "cases.json")
-    probes = read_json(fixtures / "geometry-probes.json")
-    result = {"schema_version": 1, "brainhops_ref": brainhops_ref,
-              "evaluator_version": importlib.metadata.version("brainhops-eval"),
-              "evaluator_sha": os.environ.get("BRAINHOPS_EVAL_SHA", "unknown"),
-              "brainhops_sha": brainhops_sha,
-              "brainhops_version": importlib.metadata.version("brainhops"),
-              "fixture_manifest_sha256": digest(fixtures / "manifest.json"),
-              "backend": manifest["backend"], "interface": interface, "python": platform.python_version(),
-              "source": read_json(fixtures / "inputs/inputs.json")["source"],
-              "transform_convention": manifest["transform_convention"],
-              "geometry_probes": probes,
-              "packages": {dist.metadata["Name"]: dist.version for dist in importlib.metadata.distributions()},
-              "registration": read_json(fixtures / "registration.json"), "cases": []}
-    if (fixtures / "coverage.json").exists():
-        result["transform_coverage"] = read_json(fixtures / "coverage.json")
-        write_json(output / "coverage.json", result["transform_coverage"])
+    result = _provenance(fixtures, manifest, brainhops_ref, brainhops_sha, interface)
     for case in manifest["cases"]:
-        record = {"id": case["id"], "status": "error", "transform": case["transform"],
-                  "transform_hint": case.get("transform_hint"),
-                  "transform_images": case.get("transform_images", {}),
-                  "transform_options": case.get("transform_options", {}),
-                  "transform_family": case.get("transform_family", "affine"),
-                  "transform_representation": case.get("transform_representation"),
-                  "interface": interface if case["kind"] == "nifti" else "python"}
-        case_output = output / case["id"]
-        case_output.mkdir()
-        try:
-            src, ref, transform = [relative_file(fixtures, case[key]) for key in ("moving", "reference", "transform")]
-            expected_path = relative_file(fixtures, case["expected"])
-            if case["kind"] == "nifti":
-                expected, record["native_output_axis_reordering"] = expected_on_reference_grid(expected_path, ref)
-            else:
-                expected = load_array(expected_path)
-            record["reference_output_dtype"] = str(expected.dtype if expected_path.suffix == ".npy"
-                                                   else nib.load(expected_path).get_data_dtype())
-            mask = np.load(relative_file(fixtures, case["mask"]), allow_pickle=False).astype(bool)
-            if case["kind"] == "nifti":
-                actual_path = case_output / "brainhops.nii.gz"
-                if interface == "cli":
-                    # Follow the documented push convention. A version whose CLI
-                    # differs should fail visibly rather than be special-cased.
-                    args = [sys.executable, "-m", "brainhops", "reslice", str(src),
-                            "--reference", str(ref), "--transform", transform_source(fixtures, case) + "|inv",
-                            "--output", str(actual_path), "--degree", str(case["degree"]), "--bound", "constant"]
-                    process = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                    (case_output / "brainhops.log").write_text(repr(args) + "\n" + process.stdout)
-                    process.check_returncode()
-                else:
-                    source = bio.images.load(src)
-                    reference = bio.images.load(ref)
-                    pull = load_transform(bio, fixtures, case)
-                    with warnings.catch_warnings(record=True) as caught:
-                        warnings.simplefilter("always")
-                        resliced = source(pull).reslice(reference, degree=case["degree"], bound="constant")
-                    record["warnings"] = [str(warning.message) for warning in caught]
-                    record["in_memory_output_dtype"] = str(resliced.data.dtype)
-                    bio.save(resliced, actual_path)
-                image = nib.load(actual_path)
-                reference = nib.load(ref)
-                source_storage = nib.load(src)
-                record["input"] = {"shape": list(source_storage.shape),
-                                   "dtype": str(source_storage.get_data_dtype()),
-                                   "affine_ras": source_storage.affine.tolist(),
-                                   "axcodes": list(nib.aff2axcodes(source_storage.affine))}
-                record["reference"] = {"shape": list(reference.shape),
-                                       "affine_ras": reference.affine.tolist()}
-                # Preserve the decoded output dtype, including NIfTI scaling.
-                actual = np.asanyarray(image.dataobj)
-                reference_array = reference.get_fdata()
-                if image.shape != reference.shape or not np.allclose(image.affine, reference.affine, atol=1e-4, rtol=1e-6):
-                    raise ValueError("brainhops output geometry differs from the reference grid")
-                record["output_dtype"] = str(image.get_data_dtype())
-                if case["degree"] == 0:
-                    allowed = np.append(np.unique(nib.load(src).get_fdata()), 0)
-                    if not np.isin(actual, allowed).all():
-                        raise ValueError("Nearest interpolation introduced a new label value")
-            else:
-                pull = load_transform(bio, fixtures, case)
-                source = bio.images.load(src)
-                reference = bio.images.load(ref)
-                record["axis_interpretation"] = {
-                    "moving": raster_axis_check(source, src, probes[case["kind"]]["moving"]),
-                    "reference": raster_axis_check(reference, ref, probes[case["kind"]]["reference"]),
-                }
-                with warnings.catch_warnings(record=True) as caught:
-                    warnings.simplefilter("always")
-                    actual = np.asarray(source(pull).reslice(reference, degree=1, bound="constant").data)
-                record["warnings"] = [str(warning.message) for warning in caught]
-                reference_array = np.asarray(reference.data)
-                np.save(case_output / "brainhops.npy", actual)
-                record["geometry_policy"] = "unmodified io.images.load defaults"
-            _, raw_metrics = compare(actual, expected, mask, atol=1e-5 if case["degree"] == 0 else 0.02)
-            comparison_expected = reference_in_output_dtype(expected, actual.dtype)
-            integer_output = actual.dtype.kind in "biu"
-            passed, metrics = compare(actual, comparison_expected, mask,
-                                      atol=0 if integer_output else (1e-5 if case["degree"] == 0 else 0.02),
-                                      nrmse_limit=0 if integer_output else 2e-5)
-            if integer_output:
-                mismatches = int(np.count_nonzero(actual[mask] != comparison_expected[mask]))
-                metrics["interior_mismatch_count"] = mismatches
-                metrics["boundary_mismatch_count"] = int(np.count_nonzero(actual[~mask] != comparison_expected[~mask]))
-                passed = mismatches == 0
-            record["comparison_dtype"] = str(actual.dtype)
-            record["comparison_policy"] = "reference converted to decoded brainhops output dtype; integer equality is exact"
-            record["raw_reference_metrics"] = raw_metrics
-            passed = passed and all(check["passed"] for check in record.get("axis_interpretation", {}).values())
-            if metrics["boundary_warning"]:
-                record.setdefault("warnings", []).append(
-                    f"Boundary differences exceed comparison thresholds (max absolute error "
-                    f"{metrics['boundary_max_abs']:.6g}); boundary values do not affect acceptance.")
-            record.update(status=("warning" if metrics["boundary_warning"] else "pass") if passed else "fail",
-                          metrics=metrics)
-            montage(case_output / "comparison.png", reference_array, comparison_expected, actual,
-                    window=case.get("display_window"))
-            record["display_window"] = case.get("display_window")
-            record["preview"] = f"{case['id']}/comparison.png"
-        except Exception:
-            record["error"] = traceback.format_exc()
+        record = _case(bio, fixtures, output, case, result)
         result["cases"].append(record)
-        print(f"{record['status']:5} {record['id']}", flush=True)
-    result["passed"] = bool(result["cases"]) and all(case["status"] in ("pass", "warning") for case in result["cases"])
-    write_json(output / "registration.json", result["registration"])
-    write_json(output / "results.json", result)
-    write_report(output, result)
+        print(f"{record['status']:7} {record['id']}: {record['summary']}", flush=True)
+    _save_report(output, result)
     return result["passed"]
-

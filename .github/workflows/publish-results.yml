@@ -1,0 +1,78 @@
+name: Publish evaluation reports
+
+on:
+  workflow_run:
+    workflows: [Evaluate brainhops, Test evaluation tooling]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Evaluation Actions run ID whose report artifacts should be published
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install .
+      - name: Select completed evaluation run
+        id: run
+        env:
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: |
+          python - <<'PY'
+          import os
+          run_id = os.environ['RUN_ID']
+          if not run_id.isdecimal():
+              raise ValueError('Run ID must be numeric')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+              stream.write('id=' + run_id + '\n')
+          PY
+      - name: Download all available report artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: report-*
+          path: work/reports
+          run-id: ${{ steps.run.outputs.id }}
+          github-token: ${{ github.token }}
+      - name: Build portal, including failed comparisons
+        env:
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}
+        run: brainhops-eval site --reports work/reports --output work/site --run-url "$RUN_URL"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: work/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages to use Actions
+        uses: actions/configure-pages@v5
+      - name: Deploy evaluation portal
+        id: deployment
+        uses: actions/deploy-pages@v4
