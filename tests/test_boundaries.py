@@ -31,7 +31,7 @@ def test_fsl_sampler_policies_are_not_conflated():
     warp = policy_for('fsl', {'transform_hint': 'fnirt'})
     assert 'estimated background' in affine['native_rule']
     assert 'applywarp' in warp['native_rule']
-    assert affine['brainhops_bound'] == 'mirror'
+    assert affine['brainhops_bound'] == 'constant'
     assert warp['brainhops_bound'] == 'constant'
     assert affine['brainhops_clip'] is warp['brainhops_clip'] is None
 

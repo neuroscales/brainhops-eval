@@ -21,8 +21,8 @@ def policy_for(backend: str, case: Record, *, supports_clip: bool = False) -> Re
     """Select one fixed software/interpolator policy, independent of case errors.
 
     Old brainhops versions retain a declared fallback when they lack `clip`.
-    FLIRT's closest named mode on the independent ramp is still approximate;
-    it does not reproduce FLIRT's data-dependent estimated background.
+    FLIRT retains grid-zero: a ramp-only optimum (mirror) worsens
+    anatomical edges and does not reproduce its estimated background.
     """
     native_rule = _NATIVE_RULES.get(backend, "Native image boundary rule is not documented.")
     bound, clip = "constant", None
@@ -36,8 +36,7 @@ def policy_for(backend: str, case: Record, *, supports_clip: bool = False) -> Re
             clip = 0.5
             note = "Clamped/mirrored interpolation inside the half-voxel extent; closed clip endpoints can differ from native open/half-open endpoints."
     if backend == "fsl":
-        bound = "mirror"
-        note = "Mirror has the lowest independent ramp RMSE among existing named modes; FLIRT estimated exterior background remains unmatched. This is a fixed approximate policy."
+        note = "Retain grid-zero: mirror improves the synthetic ramp but worsens anatomical edges. FLIRT estimated exterior background remains unmatched."
         if case.get("transform_hint") == "fnirt":
             bound = "constant"
             native_rule = "applywarp with default padding; the FLIRT affine edge probe does not establish nonlinear-field validity."
