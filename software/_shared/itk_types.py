@@ -197,6 +197,8 @@ def append_png(output, backend, apply_2d):
     for name, transform in transforms:
         for extension in ('tfm', 'h5', 'mat'):
             if extension == 'mat' and isinstance(transform, sitk.CompositeTransform):
+                coverage['unavailable'].append(dict(family=f'2d-{name}', representation=extension,
+                                                    reason='ITK MATLAB transform IO cannot encode composite containers; tfm and h5 are tested'))
                 continue
             path = folder / f'{name}.{extension}'
             sitk.WriteTransform(transform, str(path))

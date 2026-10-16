@@ -83,7 +83,7 @@ permutation/flip, but rejects any change to the requested physical sampling grid
 Each recipe appends nonlinear cases by default; the installed `brainhops_eval`
 package only consumes the resulting bundle. No native generator imports brainhops.
 
-| Software | Native transform representations exercised |
+| Software | Native transform representations attempted (build omissions recorded below) |
 | --- | --- |
 | SimpleITK / ITK | 2D PNG and 3D physical images; identity, translation, scale/log scale, Euler, similarity, affine/matrix-offset, versor variants, quaternion rigid and composed scale/skew; B-spline orders 0–3; dense and inverse displacement; mixed affine/B-spline/field composites in both orders; TFM, HDF5, MATLAB and vector NIfTI where encodable; estimated B-spline and affine+B-spline |
 | ANTs | Native-reader-supported ITK representations above, including 2D PNG; estimated SyN forward/inverse NIfTI warps and native affine+SyN HDF5 composites in both orders |
