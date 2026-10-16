@@ -31,3 +31,13 @@ are saved. Numerical disagreement remains a failed brainhops comparison.
 ## Nonlinear cases
 
 The runtime also extracts FNIRT, applywarp, convertwarp, invwarp and fnirtfileutils. Nonlinear cases cover quadratic/cubic coefficients with affine, relative/absolute dense fields, conversion, inverse and composition. Native convertwarp pre/post matrices preserve the original registration frames when application grids change. Known maps are independently checked in RAS.
+
+Coefficient cases compare direct spline evaluation in brainhops with FSL's
+sequence of rasterization, dense rebasing and image sampling. These numerical
+pipelines can disagree on another reference grid. Each coefficient case also
+has a `same-warp-` companion that loads the exact dense file passed to
+`applywarp`. The companion uses the application images as its FSL coordinate
+frames. It shares the native expected image and mask, without resampling either.
+Both paths retain the normal acceptance thresholds. The report records each
+path explicitly, so conversion error and image-sampling error can be assessed
+separately. See [issue #6](https://github.com/neuroscales/brainhops-eval/issues/6).
