@@ -63,6 +63,16 @@ def test_integer_warning_is_reported_without_a_boundary_or_failure_label(tmp_pat
     assert 'Informational' in detail and 'exact int16 equality' not in detail
 
 
+def test_integer_warning_is_not_listed_as_a_cause_of_an_axis_failure():
+    """Only the failed axis check belongs in the blocking failure summary."""
+    from brainhops_eval.statistics import issue_counts
+    record = _case(np.ones((2, 2), np.int16), np.zeros((2, 2)), np.ones((2, 2), bool))
+    record['axis_interpretation'] = {'moving': {'checks': {'pixels_match': False}}}
+    conclude(record)
+    assert record['status'] == 'fail'
+    assert issue_counts([record], blocking_only=True) == {'axis-interpretation': 1}
+
+
 def test_axes_can_fail_even_when_values_match():
     record = _case(np.zeros((4, 4)), np.zeros((4, 4)), np.ones((4, 4), bool))
     record['axis_interpretation'] = {'moving': {'checks': {'pixels_match_package_axis_order': False}}}

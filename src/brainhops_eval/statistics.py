@@ -118,6 +118,7 @@ def issue_counts(cases: list[Record], *, blocking_only: bool = False) -> Record:
         codes = issue_codes(case)
         if blocking_only:
             codes.discard("boundary-difference")
+            codes.discard("integer-quantization")
         counts.update(codes)
     return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
