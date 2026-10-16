@@ -72,7 +72,7 @@ recipe now probes native movement and records these as capability gaps. No
 brainhops objects or reference values are modified to imitate that defect.
 The current meaningful inventory therefore excludes those 24 cases.
 
-Upstream fixes are open as brainhops PRs #475 (detached MRtrix EOF headers),
+Upstream fixes have merged as brainhops PRs #475 (detached MRtrix EOF headers),
 #476 (ITK B-spline order and 2D field systems), #477 (intent-0 FSL dense fields
 and retained deformation-type options), and #478 (additional native ITK affine
-families). These PRs are separate; evaluation never applies patches implicitly.
+families). The hosted evaluation now tests main including these fixes; evaluation never applies patches implicitly.

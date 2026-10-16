@@ -3,6 +3,7 @@ import numpy as np
 
 from brainhops_eval.boundaries import policy_for
 from brainhops_eval.files import read_json
+from brainhops_eval.report import _boundary_probe
 from software._shared.boundaries import _predictions
 
 
@@ -20,6 +21,9 @@ def test_native_simpleitk_probe_records_nonrepresentable_edge_rule(fixtures):
     assert 'half-voxel-clamp' in linear['matching_models']
     assert linear['model_errors']['grid-constant']['max_abs'] > 0
     assert len(linear['native_values']) == len(probe['sample_x_voxels'])
+    rendered = _boundary_probe({'boundary_probes': probe})
+    assert '<svg' in rendered and 'Dashed blue' in rendered
+    assert 'Clamp within the half-voxel extent' in rendered
 
 
 def test_fsl_sampler_policies_are_not_conflated():
