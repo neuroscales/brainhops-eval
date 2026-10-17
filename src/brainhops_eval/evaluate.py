@@ -98,6 +98,9 @@ def _initial_record(
     """Describe the exact input transform and requested application settings."""
     return dict(
         id=case["id"],
+        integer_counterpart=(
+            case["id"].removesuffix("-float32") if case.get("integer_variant") else None
+        ),
         image_kind=case["kind"],
         status="error",
         stage="prepare case",

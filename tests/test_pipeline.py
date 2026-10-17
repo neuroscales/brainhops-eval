@@ -64,7 +64,7 @@ def test_fixture_integrity_detects_tampering(fixtures, tmp_path):
         verify(copy, read_json(copy / "manifest.json"))
 
 
-def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypatch):
+def test_full_python_evaluation_and_portable_report(inputs, fixtures, tmp_path, monkeypatch):
     import brainhops.io as bio
     from brainhops.datamodel.images import SingleScaleImage
 
@@ -90,7 +90,7 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
     result = read_json(report / "results.json")
     assert applied and all(identity in loaded for identity in applied)
     assert passed == all(case["status"] in ("pass", "warning") for case in result["cases"])
-    assert len(result["cases"]) == 29
+    assert len(result["cases"]) == 4 * len(read_json(inputs / "inputs.json")["variants"]) + 1
     assert not any(case["id"] == "npy" for case in result["cases"])
     assert result["brainhops_ref"] == "test-ref"
     assert result["brainhops_sha"] == "test-sha"
@@ -103,6 +103,10 @@ def test_full_python_evaluation_and_portable_report(fixtures, tmp_path, monkeypa
             assert case["error"]
         else:
             assert (report / case["preview"]).is_file()
+            if case.get("integer_counterpart"):
+                assert case["input"]["dtype"] == "float32"
+                assert case["output_dtype"] == "float32"
+                assert case["reference_output_dtype"] == "float32"
 
 
 def test_bad_comparison_still_writes_report(fixtures, tmp_path):

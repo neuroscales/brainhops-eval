@@ -115,3 +115,19 @@ accuracy against a known nonlinear anatomical ground truth.
 Reports include coverage, quantitative comparisons, and lazy-loaded montages;
 all existing artifact retention and selected brainhops ref options apply to the
 expanded suites. A genuine interior or reader failure still makes evaluation fail.
+
+### Matched integer and floating-point applications
+
+Every integer NIfTI variant has a `-float32` counterpart with the exact same
+voxel values, geometry, transform, interpolation degree and display window.
+This includes native int16, reflected and oblique applications, uint8, int8,
+and nearest-neighbour labels. The counterpart files are cast during fixture
+generation. The evaluator still applies transforms to native loaded objects.
+Native expected outputs are generated independently from each input file.
+
+Reports show each pair's status, output dtype and interior maximum error side
+by side. Integer comparisons allow one-unit differences as warnings, whereas
+floating-point comparisons use their numerical tolerances; equal statuses
+are not expected. Existing downsampled float32 cases remain separate because
+they also change the sampling grid. PNG does not support floating-point
+storage, so its reader/axis tests have no dtype-only floating counterpart.
