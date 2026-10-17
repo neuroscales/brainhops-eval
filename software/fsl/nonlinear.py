@@ -93,6 +93,9 @@ def append(output):
         {'family': 'DCT-coefficients-2008', 'reason': 'brainhops detects but does not implement FNIRT DCT coefficient evaluation; FNIRT 6.0.4 exposes quadratic/cubic spline outputs'},
     ])
     validate_known_fields(output)
+    from software.fsl.pipelines import append_rebased_cases
+
+    append_rebased_cases(output)
     return result
 
 
