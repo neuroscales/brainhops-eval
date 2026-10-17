@@ -107,6 +107,39 @@ def statistics_tables(cases: list[Record]) -> str:
     )
 
 
+def dtype_pairs(cases: list[Record]) -> str:
+    """Compare matched integer and float32 applications without conflating grids."""
+    by_id = {case["id"]: case for case in cases}
+    rows = []
+    for floating in cases:
+        integer = by_id.get(floating.get("integer_counterpart"))
+        if integer is None:
+            continue
+        cells = []
+        for case in (integer, floating):
+            cells.append(
+                f'<td><a href="{quote(case["id"], safe="")}/index.html">'
+                + status_badge(case["status"])
+                + f"</a> ({_escape(case.get('output_dtype', 'No output'))})</td>"
+                + '<td class="numeric">'
+                + format_number(case.get("metrics", {}).get("interior_max_abs"))
+                + "</td>"
+            )
+        rows.append(f'<tr><th scope="row">{_escape(integer["id"])}</th>{"".join(cells)}</tr>')
+    if not rows:
+        return ""
+    return (
+        '<section class="panel" id="dtype-pairs"><h2>Matched integer and float32 tests</h2>'
+        "<p>Each pair uses identical voxel values, grids, transform and interpolation. "
+        "Only the image storage dtype changes. Maxima are interior absolute errors in "
+        "the output dtype; integer and floating-point acceptance thresholds differ. "
+        'PNG has no floating-point storage equivalent.</p><div class="table-scroll">'
+        "<table><thead><tr><th>Integer case</th><th>Integer status / dtype</th>"
+        "<th>Integer max error</th><th>Float32 status / dtype</th><th>Float32 max error</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div></section>"
+    )
+
+
 def issue_table(cases: list[Record]) -> str:
     """Separate blocking reasons from boundary warnings, with affected test families."""
     rows = []

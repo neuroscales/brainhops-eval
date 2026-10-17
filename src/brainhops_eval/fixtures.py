@@ -278,6 +278,32 @@ def _variants(intensity_max: float) -> list[Record]:
     return variants
 
 
+def append_float32_variants(output: Path, variants: list[Record]) -> list[Record]:
+    """Pair every integer NIfTI application with an otherwise identical float32 one.
+
+    Cast stored voxel values without resampling, renormalizing, or changing
+    geometry. Keep transform selection, interpolation and display windows.
+    PNG cases are separate because PNG cannot store floating-point samples.
+    """
+    pairs = []
+    for variant in variants:
+        moving = nib.load(output / variant["moving"])
+        if not np.issubdtype(moving.get_data_dtype(), np.integer):
+            continue
+        pair = dict(variant, id=variant["id"] + "-float32", integer_variant=variant["id"])
+        for role in ("moving", "reference"):
+            original = nib.load(output / variant[role])
+            name = variant[role].removesuffix(".nii.gz") + "-float32.nii.gz"
+            if not (output / name).exists():
+                header = original.header.copy()
+                header.set_data_dtype(np.float32)
+                values = np.asanyarray(original.dataobj).astype(np.float32)
+                nib.save(nib.Nifti1Image(values, original.affine, header), output / name)
+            pair[role] = name
+        pairs.append(pair)
+    return variants + pairs
+
+
 def _rasters(output: Path) -> None:
     """Write non-square PNGs with known translation and no physical-space metadata."""
     # Native PNG uses a non-square row/column array, without DPI.
@@ -321,7 +347,7 @@ def generate(output: PathLike, source: PathLike | None = None) -> Path:
     _volume_variants(output, pair)
     intensity_max, integer_ranges = _integer_variants(output, pair)
     _landmarks(output, pair)
-    variants = _variants(intensity_max)
+    variants = append_float32_variants(output, _variants(intensity_max))
     _rasters(output)
     write_json(
         output / "inputs.json",

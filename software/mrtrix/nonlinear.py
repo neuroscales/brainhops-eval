@@ -85,6 +85,7 @@ def append(output):
                                  '-from', str(direction), '-interp', 'linear', '-oversample', '1',
                                  '-datatype', 'float32', '-nthreads', '1', '-quiet'], log)
                     entry['reference'] = str(reference.relative_to(output))
-                    entry['variants'] = [v for v in variants if v['id'] in ('native', 'moving-downsampled')]
+                    entry['variants'] = [v for v in variants if v['id'] in ('native', 'moving-downsampled')
+                                         or v.get('integer_variant') == 'native']
                 entries.append(entry)
     return append_cases(output, entries, apply_image)

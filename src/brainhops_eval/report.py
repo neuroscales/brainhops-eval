@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 
 from .files import relative_file
 from .report_sections import (
+    dtype_pairs,
     issue_table,
     quantitative_table,
     registration_table,
@@ -357,6 +358,7 @@ def write_report(output: PathLike, result: Record) -> None:
         + _stats(result["cases"])
         + issue_table(result["cases"])
         + statistics_tables(result["cases"])
+        + dtype_pairs(result["cases"])
         + policy
         + registration_table(result)
         + _coverage(result)

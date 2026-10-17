@@ -8,7 +8,7 @@ with linear or nearest interpolation and zero padding.
 Its affine is a reference-world RAS mm → floating-world RAS mm pull map.
 Matrices are loaded explicitly with `hint="niftyreg.aladin"`; a plain text
 matrix otherwise has ambiguous format. Known and registered matrices are
-reapplied across all seven shared image/grid variants, including signed int8.
+reapplied across all shared image/grid and matched dtype variants, including signed int8.
 Native integer outputs are retained, including NiftyReg's own quantisation.
 
 ```sh
